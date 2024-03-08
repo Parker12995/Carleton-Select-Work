@@ -1,0 +1,186 @@
+---
+title: "STAT 260 - Short Report 3"
+author: "Conner Taylor, Parker Johnson"
+date: "3/3/2022"
+output: pdf_document
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(knitr)
+library(survey)
+library(readr)
+```
+
+## Introduction
+  Most courses at Carleton are given descriptions beyond their name in order to better clarify their content, suggested to be at most 100 words. However, we were curious as to if this limit was met on average. In this study, we estimated the average word count description for Carleton courses, and additionally, the proportion of courses in the Academic Catalog that were offered this school year.
+
+
+## Methodology
+  For this design, we applied a two-stage cluster sample sampling design. This design seemed appropriate for our study, because cluster sampling by the departments then sampling certain pages within departments was convenient and time-effective as opposed to searching for individual courses spread out across multiple sub-pages. Additionally, courses only appear in their respective department, so the secondary sampling units are non-overlapping.
+
+  The population of primary sampling units (clusters) was the total number of departments found in the 2021-22 Academic Catalog excluding any that simply linked to a different department, which was 43, and the secondary sampling units were the courses within each department. Our measurements were the word counts of course descriptions and whether the course was offered or not. Our sampling frame was all 43 departments.
+
+  In order to figure out how large each SRS should be– of the departments and of the courses within each department–, a pilot study of two departments with two courses each was conducted. We assigned each department a number based on the alphabetical list on the 2021-22 Academic Catalog, and then got two departments from a random sample: Asian Studies and Cognitive Science. We then counted the number of courses on the page by copying the list, pasting it into Google Docs, and then observing if all instances of the subject’s four-letter name (e.g. ASSN for Asian Studies) were included just in the course name and not a course’s description or requirements, and then got the count directly from Docs’ “Find” command. The two courses sampled were done in a similar manner, with each course being assigned a number corresponding to the order of courses on the department’s page, and then the sampled course’s description was pasted into Docs and the words were counted via the “Word count” command. A binary yes-no variable was also noted for whether or not the course was offered this year or not. 400-level Integrative Exercises were not counted as courses, and the course name, professor, requirements, and the course being offered were not included as descriptions. Courses that were not 6 credit courses were still included in the study.
+
+
+  From the pilot sample, we figured that it took twice the time to count the number of words in the course description, about 2 minutes, than it was to count the number of courses per department, which took about 1 minute, at least with what we had sampled for our pilot study. In order to calculate the optimal course sample size, we had to assume that the departments all contained the same number of courses. With this assumption and costs, we ended up with an optimal course sample size of 1, and from a budget of spending a maximum of 90 minutes with no initial time cost, an optimal department sample size of 30. We then used the same process as in the pilot study above for the actual study.
+
+## Results
+  The results from each of the 30 sampled courses can be seen in Figure 1. The largest number of words in a course description was 117 words, which was for AFST 180, an Africana Studies class. The smallest number of words in a course description was 5 words, which was for BIOL 225, a Biology class. A table of the results can be found at the end of the appendix.
+  
+  We found that the estimated word count for all course descriptions was 85.076 words with a standard error of 6.433 words. We are 95% confident that the true mean word count for all course descriptions at Carleton is between 71.917 and 98.234 words, and thus on average, course descriptions are under 100 words. The estimated proportion of courses offered in 2021-2022 was 0.614, with a standard error of 0.128. We are 95% confident that the true proportion of courses offered in 2021-2022 is between 0.352 and 0.876.
+
+
+```{r, echo=FALSE, warning=FALSE, message=FALSE, fig.width=6, fig.height=4, fig.align='center', fig.show="hold", fig.cap="The sampled data from each of the 30 courses"}
+set.seed(2553517)
+coursedesc <- read_csv("coursedesc.csv")
+
+for (i in 1:nrow(coursedesc)) {
+  coursedesc$coursenum[i] <- 
+    sample(1:coursedesc$M_i[i], 1)
+} 
+
+#The 30 samples and their course names, word count, and offered or not
+coursedesc$coursename <- c("IDSC 236", "PHIL 100", "CCST 270", "EUST 232", 
+                           "CLAS 230", "LCST 245", "AAST 284", "CHIN 251", 
+                           "ENTS 307", "DGAH 110", "POSC 350", "CHEM 122", 
+                           "CS 304", "MATH 352", "LING 340", "ARTH 323", 
+                           "SOAN 101", "BIOL 225", "PHYS 342", "GWSS 243", 
+                           "RELG 241", "ARCN 395", "GERM 223", "LTAM 398", 
+                           "MUSC 225", "EDUC 110", "PE 131", "AFST 180", 
+                           "RUSS 301", "ARBC 387")
+coursedesc$wordcount <- c(81, 112, 77, 91, 103, 73, 65, 78, 95, 99, 99, 71, 
+                          100, 17, 66, 98, 101, 5, 77, 92, 72, 52, 108, 99, 105, 
+                          91, 83, 117, 52, 107)
+coursedesc$offered2122 <- c("No", "Yes", "No", "No", "No", "Yes", "Yes", "Yes", 
+                            "Yes", "Yes", "No", "Yes", "No", "Yes", "Yes", "No", 
+                            "Yes", "Yes", "Yes", "Yes", "No", "Yes", "No", 
+                            "Yes", "Yes", "Yes", "Yes", "No", "No", "Yes")
+
+ggplot(coursedesc, aes(x = factor(coursename), y = wordcount, fill = offered2122)) + 
+  geom_bar(stat = "identity") + 
+  labs(x = "Course Name", y = "Number of Words in Description", fill = 
+         "Offered in 21-22", title = "Course Versus its Description Word Count") + 
+    theme(plot.title = element_text(hjust = 0.5)) + 
+  theme(axis.text.x = element_text(angle = 45, vjust = 0.9, hjust=1))
+
+```
+
+
+## Discussion
+
+  One issue was that we only sampled one course per department, partially due to our pilot sample having within-department course word counts very close to each other, and partially due to our pilot sample including departments whose list of courses were very simple to count with our process. This resulted in our $c_1$ value being less than our $c_2$ value, even though when we did the actual study this stopped being accurate. With the former, we ended up with an $R^2_a$ value very close to 1 from our pilot sample, suggesting a lot of within-cluster homogeneity within each department. This led not just to our optimal course sample size even being 1, but instead around .25 and having been rounded up to 1. Thus, it would have been worth trying maybe even just a slightly larger pilot study to have maybe caught one or both of these discrepancies and thus resulting in a value for $m_opt$ greater than 1.
+
+  Alternatively, our value of 1 for the number of courses to sample within each department was fixed. This also decreased the precision of our study, because some departments such as Music contained well over 100 courses, yet only 1 Music course was sampled. Even with another study having a value of $m_opt$ greater than 1, it would still result in departments with fewer courses having a greater effect on the estimate, as there is a greater weight towards them.
+  
+  Even with the specifics of our methodology, there was also still a chance for measurement error. We could have had a point in which we didn’t notice a four-letter name in a description and counted more courses than there were in a particular department, or failed to avoid copy-pasting something superfluous like an Integrative Exercise course or a prerequisite in a course’s description. Additionally, we could have miscounted which course specifically was our sampled course, as that was only done via counting down the page.
+  	
+  Additionally, since our $DEff$ for both estimators was greater than 1, our precision was less than a standard SRS. While our SE was about one-fourth the range of our CI, our SE itself was rather large, leading to, especially for the proportion of courses offered, a very large and thus unhelpful CI. For the confidence interval, the skew was approximated to be very close to zero, and so the minimum sample size suggested by Sugden et. al was 28, which means the Central Limit Theorem and normality assumption applies with the chosen sample size of 30.
+
+## Technical Appendix
+
+The first step in our sampling design is to find the cluster sample size $m_i$ within each department. We did this using a pilot sample to calculate an estimated value for $R^2_a$. Using the average value of $M$ from the pilot sample and estimated costs of $c_1 = 1,$ and $c_2 = 2$, we used the optimal SSU sample size formula $m_{opt} = \sqrt{\frac{c_1M(N-1)(1-R^2_a)}{c_2(NM-1)R^2_a}}$ to find the number of courses per department to sample. We then used this value for $m_opt$ to find the optimal number of departments to sample using the formula $n_{opt} = \frac{C - c_0}{c_1 + c_2m_{opt}}$, where $C=90$ was our timed budget in minutes, and $c_0$ was the initial cost, which was 0 minutes.
+
+```{r}
+set.seed(2553517)
+N <- 43 #total number of departments
+pilot_samp <- sample(1:N, 2, replace = FALSE)
+#generate two values for departments to use in a pilot sample
+pilot_M6 <- sample(1:pilot_samp[1], 2, replace = FALSE)
+pilot_M11 <- sample(1:pilot_samp[2], 2, replace = FALSE)
+#generate two values each for courses to use in a pilot sample
+coursedesc_pilot <- read_csv("coursedesc_pilot.csv")
+c_1 <- 1
+c_2 <- 2
+#cost values in minutes based on pilot sample
+pilot_lm <- lm(wordcount~deptname, data = coursedesc_pilot)
+R2a_pilot <- summary(pilot_lm)$adj.r.squared
+R2a_pilot
+#adjusted R-squared value from pilot sample
+M <- (9+11)/2
+#take average of M_i from pilot sample for M in m_opt calculation
+m_opt <- sqrt((c_1*M*(N-1)*(1-R2a_pilot)) / (c_2*(N*M-1)*R2a_pilot))
+m_opt #calculate m_opt
+m_opt <- ceiling(m_opt)
+m_opt #round m_opt to nearest whole number, in this case up to 1
+C <- 90 #max cost valued to be around 90 minutes
+c_0 <- 0 #no initial time value
+n_opt <- (C - c_0) / (c_1 + c_2*m_opt)
+n_opt #calculate n_opt in terms of cost
+
+samp <- sample(1:N, n_opt, replace = FALSE)
+samp
+#apparently I get a different list depending on which computer I use
+
+coursedesc <- read_csv("coursedesc.csv")
+
+for (i in 1:nrow(coursedesc)) {
+  coursedesc$coursenum[i] <- 
+    sample(1:coursedesc$M_i[i], 1)
+} 
+#unlike above, this was the same for both my laptop and desktop
+
+#The 30 samples and their course names, word count, and offered or not
+coursedesc$coursename <- c("IDSC 236", "PHIL 100", "CCST 270", "EUST 232", 
+                           "CLAS 230", "LCST 245", "AAST 284", "CHIN 251", 
+                           "ENTS 307", "DGAH 110", "POSC 350", "CHEM 122", 
+                           "CS 304", "MATH 352", "LING 340", "ARTH 323", 
+                           "SOAN 101", "BIOL 225", "PHYS 342", "GWSS 243", 
+                           "RELG 241", "ARCN 395", "GERM 223", "LTAM 398", 
+                           "MUSC 225", "EDUC 110", "PE 131", "AFST 180", 
+                           "RUSS 301", "ARBC 387")
+coursedesc$wordcount <- c(81, 112, 77, 91, 103, 73, 65, 78, 95, 99, 99, 71, 
+                          100, 17, 66, 98, 101, 5, 77, 92, 72, 52, 108, 99, 105, 
+                          91, 83, 117, 52, 107)
+coursedesc$offered2122 <- c("No", "Yes", "No", "No", "No", "Yes", "Yes", "Yes", 
+                            "Yes", "Yes", "No", "Yes", "No", "Yes", "Yes", "No", 
+                            "Yes", "Yes", "Yes", "Yes", "No", "Yes", "No", 
+                            "Yes", "Yes", "Yes", "Yes", "No", "No", "Yes")
+
+```
+
+
+We then checked to make sure that normality assumptions were met with this sample size. Since our sample size was greater than the calculated recommended sample size, the normality assumption was presumed to have been met.
+
+```{r}
+coursedesc$skew1 <- (coursedesc$wordcount - mean(coursedesc$wordcount))^3
+#calculate the summand for the skew calculation
+skew <- (sum(coursedesc$skew1))/(N*sd(coursedesc$wordcount))^3 #approximate skew
+28+25*(skew)^2
+#calculate min sample size from Sugden et. al equation from p. 49 of text
+```
+
+
+We then used the survey package to calculate our estimated word count mean and proportion, and their corresponding standard errors and confidence intervals.
+
+```{r}
+coursedesc$m_i <- 1
+coursedesc$wts <- coursedesc$M_i / coursedesc$m_i
+course_design <- svydesign(id = ~deptname + coursename,
+  weights = ~wts,
+  data = coursedesc) #Creating the survey design object
+
+#Estimated mean and confidence intervals for the course description word count
+svymean(~wordcount, course_design, deff=T)
+confint(svymean(~wordcount, course_design, deff=T), df=degf(course_design))
+
+#Estimated mean and confidence intervals for the proportion of courses offered 
+#in 2021-2022
+svymean(~offered2122 == "Yes", course_design, deff=T)
+confint(svymean(~offered2122 == "Yes", course_design, deff=T), df=degf(course_design))
+```
+
+
+Here are the data tables for our pilot sample and sampled data:
+
+```{r, echo=FALSE}
+kable(coursedesc_pilot, caption = "The dataset for the pilot study.")
+
+coursedesc <- coursedesc %>%
+  select(-c("m_i", "wts", "skew1"))
+kable(coursedesc, caption = "The full dataset for the sampled data, excluding skew and sample design variables.")
+```
