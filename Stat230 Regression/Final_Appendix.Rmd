@@ -1,0 +1,197 @@
+---
+title: "Final Project Appendix"
+author: "Parker Johnson, Teagan Johnson"
+date: "11/23/2021"
+output:
+  pdf_document: default
+  word_document: default
+header-includes:
+   - \usepackage{setspace}
+   - \onehalfspacing
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r, echo = FALSE, warning = FALSE, message = FALSE}
+library(skimr)
+library(ggplot2)
+library(broom)
+library(ggResidpanel)
+library(dplyr)
+library(kableExtra)
+library(Sleuth3)
+library(GGally)
+library(knitr)
+library(car)
+```
+
+## Appendix:
+
+The following is the R code used to reach our conclusions.
+
+First, we checked which years would be appropriate to use in our model. The high number of missing values for 2015 indicated that this year would not be the most accurate fit, and checking the number of missing values and inaccurate 0 values for 2014, we found that this year would be much better to use.
+
+```{r,fig.width=6,fig.height=4}
+LifeExpectancy <- read.csv("Life_Expectancy_Data.csv")
+
+vec2015 <- c(2015)
+LifeExpectancy2015Bad <- LifeExpectancy[LifeExpectancy$Year %in% vec2015, ]
+sapply(LifeExpectancy2015Bad, function(x) sum(is.na(x)))
+
+vec <- c(2014)
+LifeExpectancy2014Bad <- LifeExpectancy[LifeExpectancy$Year %in% vec, ]
+sapply(LifeExpectancy2014Bad, function(x) sum(is.na(x)))
+LifeExpectancy2014Old <- na.omit(LifeExpectancy[LifeExpectancy$Year %in% vec, ])
+sapply(LifeExpectancy2014Old, function(x) sum(x == 0))
+LifeExpectancy2014 <- subset(LifeExpectancy2014Old, select = 
+                               -c(infant.deaths, Measles, under.five.deaths))
+```
+
+Since infant deaths, measles, and under 5 deaths contained a high number of unreasonable 0 values, we decided that it was better to remove these terms altogether, since removing the countries that had these 0 values led to models that were less accurate and contained more variation. Our starting model for 2014 is listed below:
+
+```{r,fig.width=6,fig.height=4}
+LifeExpectancy2014_lm <- lm(Life.expectancy ~ Status + Adult.Mortality + 
+                              Alcohol + percentage.expenditure + BMI + 
+                              Hepatitis.B + Polio + Total.expenditure + 
+                              Diphtheria + HIV.AIDS + GDP + Population + 
+                              thinness..1.19.years + thinness.5.9.years +
+                              Income.composition.of.resources + 
+                              Schooling, data = LifeExpectancy2014)
+summary(LifeExpectancy2014_lm)
+vif(LifeExpectancy2014_lm)
+```
+
+Next, we checked residual plots and cook's distance to determine if there were any outliers or necessary transformations present in our data. Since many of the terms currently violate the MLR assumption of constant variance, many transformations are needed.
+
+```{r,fig.width=6,fig.height=4}
+NewLifeExpectancy2014_lm <- lm(Life.expectancy ~ Status + Adult.Mortality + 
+                                 Alcohol + log(percentage.expenditure) + BMI + 
+                                 Hepatitis.B + Polio + Total.expenditure + 
+                                 Diphtheria + HIV.AIDS + GDP + Population + 
+                                 thinness..1.19.years + thinness.5.9.years +
+                                 Income.composition.of.resources +
+                                 Schooling, data = LifeExpectancy2014)
+
+resid_panel(LifeExpectancy2014_lm, plots = c("resid", "qq"))
+resid_xpanel(LifeExpectancy2014_lm)
+plot(NewLifeExpectancy2014_lm, which = 4)
+```
+
+After transforming many of the variables, the residual plots look much better, and the MLR assumptions are now met. Additionally, since all of the countries had Cook's distances less than 0.2, we concluded that there were not any influential cases that had to be removed.
+
+```{r,fig.width=6,fig.height=4}
+life_exp_2014_lm_mod <- lm(Life.expectancy ~ Status + Adult.Mortality + 
+                             Alcohol + log(percentage.expenditure) + BMI + 
+                             I(Hepatitis.B^2) + I(Polio^2) + Total.expenditure + 
+                             I(Diphtheria^2) + log(HIV.AIDS) + log(GDP) + 
+                             log(Population) + log(thinness..1.19.years) +
+                             log(thinness.5.9.years) + 
+                             Income.composition.of.resources + Schooling, 
+                           data = LifeExpectancy2014)
+
+resid_panel(life_exp_2014_lm_mod, plots = c("resid", "qq"))
+resid_xpanel(life_exp_2014_lm_mod)
+plot(NewLifeExpectancy2014_lm, which = 4)
+```
+
+We now have our transformed model for 2014 listed below.
+
+```{r,fig.width=6,fig.height=4}
+life_exp_2014_lm_mod <- lm(Life.expectancy ~ Status + Adult.Mortality + 
+                             Alcohol + log(percentage.expenditure) + BMI + 
+                             I(Hepatitis.B^2) + I(Polio^2) + Total.expenditure + 
+                             I(Diphtheria^2) + log(HIV.AIDS) + log(GDP) + 
+                             log(Population) + log(thinness..1.19.years) +
+                             log(thinness.5.9.years) + 
+                             Income.composition.of.resources + Schooling, 
+                           data = LifeExpectancy2014)
+summary(life_exp_2014_lm_mod)
+vif(life_exp_2014_lm_mod)
+```
+
+After removing the terms that showed high collinearity or were not significant, our final model is shown below, with all terms being statistically significant with 95% confidence. The p-values for Total.expenditure (0.058) and log(thinness.5.9.years) (0.066) we deemed were close enough to warrant not removing them from our model.
+
+```{r,fig.width=6,fig.height=4}
+life_exp_2014_lm_mod_new <- lm(Life.expectancy ~ Status + Adult.Mortality +
+                                 log(percentage.expenditure + .5)  + 
+                                 Total.expenditure + log(HIV.AIDS) + 
+                                 log(thinness.5.9.years) + Schooling, 
+                               data = LifeExpectancy2014)
+summary(life_exp_2014_lm_mod_new)
+vif(life_exp_2014_lm_mod_new)
+```
+
+Next, we checked which year would fit for our second model. After checking the number of missing values for 2000, 2001, 2002, and 2003, we determined that these years were not the best for our data, since they all left us with less than 100 data points. Therefore, we concluded that 2004 would be much better to use, since it contained less missing values and inaccurate 0 values than the other early years.
+
+```{r,fig.width=6,fig.height=4}
+vec2004 <- c(2004)
+LifeExpectancy2004Bad <- LifeExpectancy[LifeExpectancy$Year %in% vec2004, ]
+sapply(LifeExpectancy2004Bad, function(x) sum(is.na(x)))
+LifeExpectancy2004Old <- na.omit(LifeExpectancy[LifeExpectancy$Year %in% vec2004, ])
+sapply(LifeExpectancy2004Old, function(x) sum(x == 0))
+LifeExpectancy2004 <- subset(LifeExpectancy2004Old, select = 
+                               -c(infant.deaths, Measles, under.five.deaths))
+```
+
+Since infant deaths, measles, and under 5 deaths contained a high number of unreasonable 0 values, we decided that it was better to remove these terms altogether, since removing the countries that had these 0 values led to models that were less accurate and contained more variation. Our starting model for 2004 is listed below. Similar to the model for 2014, we checked residual plots and cook's distance to determine if there were any outliers or necessary transformations present in our data. Since many of the terms currently violate the MLR assumption of constant variance, many transformations are needed.
+
+```{r,fig.width=6,fig.height=4}
+LifeExpectancy2004_lm <- lm(Life.expectancy ~ Status + Adult.Mortality + 
+                              Alcohol + percentage.expenditure + BMI + 
+                              Hepatitis.B + Polio + Total.expenditure + 
+                              Diphtheria + HIV.AIDS + GDP + Population + 
+                              thinness..1.19.years + thinness.5.9.years +
+                              Income.composition.of.resources + Schooling, 
+                            data = LifeExpectancy2004)
+
+resid_panel(LifeExpectancy2004_lm, plots = c("resid", "qq"))
+resid_xpanel(LifeExpectancy2004_lm)
+plot(LifeExpectancy2004_lm, which = 5)
+```
+After transforming many of the variables, the residual plots look much better, and the MLR assumptions are now met. While some of the countries had higher Cook's distances, none of the points had Cook's distances larger than 1, so we concluded that there were not any influential cases that had to be removed.
+
+```{r,fig.width=6,fig.height=4}
+NewLifeExpectancy2004_lm <- lm(Life.expectancy ~ Status + Adult.Mortality + 
+                                 Alcohol + log(percentage.expenditure+.5) + 
+                                 BMI + I(Hepatitis.B^2) + I(Polio^2) + 
+                                 Total.expenditure + I(Diphtheria^2) + 
+                                 log(HIV.AIDS) + log(GDP) + log(Population) +
+                                 log(thinness..1.19.years) + 
+                                 log(thinness.5.9.years) + 
+                                 Income.composition.of.resources + Schooling, 
+                               data = LifeExpectancy2004)
+
+resid_panel(NewLifeExpectancy2004_lm, plots = c("resid", "qq"))
+resid_xpanel(NewLifeExpectancy2004_lm)
+```
+
+We now have our transformed model for 2004 listed below.
+
+```{r,fig.width=6,fig.height=4}
+NewLifeExpectancy2004_lm <- lm(Life.expectancy ~ Status + Adult.Mortality + 
+                                 Alcohol + log(percentage.expenditure+.5) + 
+                                 BMI + I(Hepatitis.B^2) + I(Polio^2) + 
+                                 Total.expenditure + I(Diphtheria^2) + 
+                                 log(HIV.AIDS) + log(GDP) + log(Population) +
+                                 log(thinness..1.19.years) + 
+                                 log(thinness.5.9.years) + 
+                                 Income.composition.of.resources + Schooling, 
+                               data = LifeExpectancy2004)
+summary(NewLifeExpectancy2004_lm)
+vif(NewLifeExpectancy2004_lm)
+```
+
+After removing the terms that showed high collinearity or were not significant, our final model is shown below, with all terms being statistically significant with 95% confidence. The p-value for Income.Composition.Of.Resources (0.054) we deemed was close enough to warrant not removing it from our model.
+
+```{r,fig.width=6,fig.height=4}
+NewLifeExpectancy2004_lm <- lm(Life.expectancy ~ Adult.Mortality + 
+                                 log(percentage.expenditure+.5)  + 
+                                 I(Diphtheria^2) + log(HIV.AIDS) + 
+                                 log(thinness.5.9.years) + 
+                                 Income.composition.of.resources + Schooling, 
+                               data = LifeExpectancy2004)
+summary(NewLifeExpectancy2004_lm)
+vif(NewLifeExpectancy2004_lm)
+```

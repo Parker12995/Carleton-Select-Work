@@ -1,0 +1,248 @@
+---
+title: "Short Report 3"
+author: "Parker Johnson, Alexander Staff"
+date: "11/12/2021"
+output:
+  pdf_document: default
+  word_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r, echo = FALSE, warning = FALSE, message = FALSE}
+library(skimr)
+library(ggplot2)
+library(broom)
+library(ggResidpanel)
+library(dplyr)
+library(kableExtra)
+library(Sleuth3)
+library(GGally)
+library(knitr)
+library(car)
+```
+
+## Introduction
+There are many forms of bias present in a jury selection process that go unnoticed in certain judicial systems within our country. APM reports took a closer look at the inequities present within the 5th Circuit of Mississippi. Using data from 1992 to 2017, spanning 225 different trials, APM investigated numerous variables associated with whether or not certain jurors were “struck” or not. A juror being struck means that the juror’s answer to preliminary questions indicate that they cannot judge the case fairly, or that the prosecution or defense decides to strike them for their own motives (Craft). APM’s data was based on strikes at all three stages, and looked at 65 different predictors for whether a juror was struck or not. For this report, there was 13 variables of interest that were then narrowed down to these seven variables:
+
+
+*accused:* juror was accused of being involved in criminal activity
+
+*is_black:* juror is black, reference category: white
+
+*fam_accused:* juror's family/close friend was accused of being involved in criminal activity
+
+*death_hesitation:* juror expressed reservations about imposing the death penalty
+
+*know_def:* juror has prior familiarity with the defendant
+
+*same_race:* juror was the same race as the defendant
+
+*fame_law_enforcement:* juror's family/close friend is in law enforcement
+
+
+Ultimately, the conclusion that is meant to be drawn from our analysis in this report is that the selection process for juror favored that of white jurors. Ultimately the consequence of this is unfair trials for black defendants in Mississippi like Curtis Flowers who served 23 years in prison after eventually being released on bail (Yesko). 
+
+
+## Results
+
+```{r, echo=FALSE, warning = FALSE, message = FALSE, fig.width=6,fig.height=4}
+apm <- read.csv("http://math.carleton.edu/kstclair/data/APM_245report3.csv")
+ggplot(apm, aes(x=is_black, fill=struck_state)) +
+  geom_bar(position="fill") + 
+  facet_wrap(~fam_accused) +
+  labs(title = "Figure 1: struck jurors by race and previous family accusations")
+```
+
+```{r, echo=FALSE, warning = FALSE, message = FALSE, fig.width=6,fig.height=4}
+ggplot(apm, aes(x=is_black, fill=struck_state)) +
+  geom_bar(position="fill") + 
+  facet_wrap(~know_def) +
+  labs(title = "Figure 2: struck jurors by race and previous knowing defendant")
+```
+
+We first investigated whether the data had any potential influential cases that were skewing our models and analysis. After looking at residuals and cook’s distances, we concluded that there were no influential cases to speak of with our data. There was a slight right skew in the residuals for not striked jurors. However, we did not think it was significant enough to consider model transformations. Then we decided whether we should substitute defendant_race for same_race. The consequence of this would be that the model would be using a predictor that represented what the race of the defendant was, instead of whether the defendant and juror were the same race. Upon looking at summary outputs for different models that had the two different predictors, it was apparent that none of the categorical variables for defendant race were significant. Additionally, we confirmed through an ANOVA test that leaving out the predictor of defendant race resulted in an insignificant p-value (see appendix). Therefore, we concluded that same_race was a more appropriate predictor for the model than defendant_race.
+
+Our next task was investigating the utility of an interaction term in our model. After looking at the comparative bar graphs of different variables, we concluded that an interaction term between is_black and fam_accused, as well as is_black and know_def were both significant interaction terms. This was indicated both in the bar graphs that showed a black juror was more likely to be struck if they had family or a close friend who was accused of being involved in criminal activity (figure 1), as well as prior familiarity with the defendant (figure 2). Additionally, the percentage of black jurors who suffered from this disparity was noticeably larger than that of white jurors. Finally, the summary outputs confirmed that these interaction terms were significant. Our final model is listed below:
+
+```{r, echo=FALSE, warning = FALSE, message = FALSE, fig.width=6,fig.height=4}
+interact3_apm_glm <- glm(struck_state_bin ~ accused + is_black + fam_accused + death_hesitation + know_def + fam_law_enforcement + same_race + is_black * fam_accused + is_black * know_def, family = binomial, data = apm)
+kable(tidy(interact3_apm_glm, conf.int = TRUE), digits = 3, caption = "Final Model")
+```
+
+$$
+\begin{split}
+logit(\hat{\pi}) 
+&= -2.327 + 2.566accused + 1.737isBlack + 1.572famAccused \\
+& + 1.8235deathHesitation + 0.6865knowDef - 0.5483famLawEnforcement \\
+& + 0.3174sameRace + 0.8118isBlack*famAccused + 1.1620isBlack*knowDef
+\end{split}
+$$
+
+The effect of juror race on the odds of a state strike is dependent upon both of our interaction terms. If a juror is black and neither fam_accused or know_def is true, then the odds of a state strike is 5.68. We are 95% confident that the odds of a state strike if a juror is black and neither fam_accused or know_def is true, is between 4.25 and 7.63. If a juror is black and fam_accused is true and know_def is not true, then the odds of a state strike is 12.80. We are 95% confident that the odds of a state strike if a juror is black and fam_accused is true and know_def is not true, is between 6.28 and 26.06. If a juror is black and fam_accused and know_def are both true, then the odds of a state strike is 18.16. We are 95% confident that the odds of a state strike if a juror is black and fam_accused and know_def are both true, is between 6.85 and 48.14.
+
+
+## Discussion
+
+Looking at whether or not race had an impact on juror’s being struck or not, we can conclude that there is in fact a statistically significant connection. Just looking at the variable is_black, without any interaction terms, we were 95% confident that the odds of a juror being struck given they are black was 4.25 between 7.63. Upon introducing interaction terms, these odds increase even more, as mentioned previously. This is adequate evidence to suggest that there was a racial bias in the process of striking jurors from trials in the 5th Circuit of Mississippi, and that it was not just random chance. Therefore, our new model that contains interaction terms further verifies the conclusions of racial bias from the initial study that did not contain any interaction terms. Mentioned before, we couldn’t test for a possible interaction term between is_black and death_hesitation, because 100% of black people that showed hesitation towards giving the death penalty were struck, which would have resulted in an infinite value for its odds, which we cannot work with. This inability removes some of the validity of our model, as it’s possible that there is indeed a strong interaction between these two terms that we could not represent. Additionally, the initial study could not use all initial 418 trials that Doug Evans has prosecuted since 1992 due to incomplete, missing, or illegible data, so the lack of these additional trials also weakens the strength of our model if these trials may have varied our model.
+
+## Appendix
+
+The following is the R code used to reach our conclusions.
+
+First, we checked the summary statistics to determine which variables were significant in our model.
+
+```{r,fig.width=6,fig.height=4}
+apm <- read.csv("http://math.carleton.edu/kstclair/data/APM_245report3.csv")
+apm_glm <- glm(struck_state_bin ~ accused + is_black + fam_accused + 
+                 death_hesitation + know_def + same_race + 
+                 fam_law_enforcement + know_vic + know_wit +
+                 fam_crime_victim + crime_victim + prior_info + 
+                 gender, data = apm)
+summary(apm_glm)
+```
+
+6 of our terms were deemed insignificant, narrowing our model to 7 terms: accused, is_black, fam_accused, death_hesitation, know_def, same_race, and fam_law_enforcement. Then, we confirmed that the odds ratios for our model matched the odds ratios calculated in the initial study. Below are the calculated estimated odds ratios for our 6 terms, which do indeed match with the initial study. Calculating the 95% confident intervals follows the same procedure of exponentiating the terms given in the summary output.
+
+```{r,fig.width=6,fig.height=4}
+new_apm_glm <- glm(struck_state_bin ~ accused + is_black + fam_accused + 
+                     death_hesitation + know_def + same_race + 
+                     fam_law_enforcement, family = binomial, data = apm)
+tidy(new_apm_glm, conf.int = TRUE)
+
+exp(2.5127795)
+exp(1.8971633)
+exp(1.8475979)
+exp(1.8243438)
+exp(1.3256965)
+exp(0.3602561)
+exp(-0.5626784)
+```
+
+Next, we checked residual plots and cook's distance to determine if there were any outliers or transformations present in our data. From the cook's distance plot, there were no notable influential cases. The residual plot used boxplots, and while here was a slight right skew in the residuals for not striked jurors, we did not think it was significant enough to consider model transformations.
+
+```{r,fig.width=6,fig.height=4}
+plot(new_apm_glm, which = 5)
+
+new_apm_aug <- augment(new_apm_glm, type.residual = "deviance")
+ggplot(new_apm_aug, aes(x = .resid)) + 
+   geom_boxplot() +
+   facet_wrap(~struck_state_bin) +
+   geom_hline(yintercept = 0)  + 
+   coord_flip() +
+   labs(title = "Deviance residual plot")
+   
+```
+
+Next, we checked if defendant_race is a better predictor than same_race. From a summary output, none of the categorical variables within defendant_race were significant, and from an anova test, the categorical variables combined were still not significant. Therefore, we concluded that same_race is a better predictor for our model, since this term is significant.
+
+```{r,fig.width=6,fig.height=4}
+new_apm_glm <- glm(struck_state_bin ~ accused + is_black + fam_accused + 
+                     death_hesitation + know_def + fam_law_enforcement + 
+                     same_race, family = binomial, data = apm)
+summary(new_apm_glm, conf.int = TRUE)
+
+diff_apm_glm <- glm(struck_state_bin ~ accused + is_black + fam_accused + 
+                      death_hesitation +
+                      know_def + fam_law_enforcement + defendant_race,
+                      family = binomial, data = apm)
+summary(diff_apm_glm, conf.int = TRUE)
+
+reduced_apm_glm <- glm(struck_state_bin ~ accused + is_black + fam_accused + 
+                         death_hesitation + know_def + fam_law_enforcement, 
+                         family = binomial, data = apm)
+anova(reduced_apm_glm, new_apm_glm, test = "Chisq")
+anova(reduced_apm_glm, diff_apm_glm, test = "Chisq")
+
+```
+
+Following this, we checked if there were any interaction terms present in our model between is_black and other terms. This was done by looking at bar graphs between is_black and other variables, as well as checking if the interaction terms were significant. We found two interaction terms that were significant: is_black with fam_accused, and is_black with know_def. Including these two interaction terms gives us our final model.
+
+It's worth noting that we can't test an interaction between is_black and death_hesitation, because 100% of black people that showed hesitation towards giving the death penalty were struck, which results in an infinite odds (dividing by 0).
+
+```{r,fig.width=6,fig.height=4}
+ggplot(apm, aes(x=is_black, fill=struck_state)) +
+  geom_bar(position="fill") + 
+  facet_wrap(~fam_accused)
+
+interact1_apm_glm <- glm(struck_state_bin ~ accused + is_black + fam_accused + 
+                           death_hesitation + know_def + fam_law_enforcement + 
+                           same_race + is_black * fam_accused, 
+                           family = binomial, data = apm)
+summary(interact1_apm_glm, conf.int = TRUE)
+
+
+ggplot(apm, aes(x=is_black, fill=struck_state)) +
+  geom_bar(position="fill") + 
+  facet_wrap(~know_def)
+
+interact2_apm_glm <- glm(struck_state_bin ~ accused + is_black + fam_accused + 
+                           death_hesitation + know_def + fam_law_enforcement + 
+                           same_race + is_black * know_def, 
+                           family = binomial, data = apm)
+summary(interact2_apm_glm, conf.int = TRUE)
+
+
+ggplot(apm, aes(x=is_black, fill=struck_state)) +
+  geom_bar(position="fill") + 
+  facet_wrap(~death_hesitation)
+
+interact3_apm_glm <- glm(struck_state_bin ~ accused + is_black + fam_accused + 
+                           death_hesitation + know_def + fam_law_enforcement + 
+                           same_race + is_black * fam_accused + is_black * know_def, 
+                           family = binomial, data = apm)
+summary(interact3_apm_glm, conf.int = TRUE)
+```
+
+With our final model, we did one final check for influential cases or possible transformations, and found no notable outliers or need for transformations.
+
+```{r,fig.width=6,fig.height=4}
+plot(interact3_apm_glm, which = 5)
+
+interact3_apm_aug <- augment(interact3_apm_glm, type.residual = "deviance")
+ggplot(interact3_apm_aug, aes(x = .resid)) + 
+   geom_boxplot() +
+  facet_wrap(~struck_state_bin) +
+   geom_hline(yintercept = 0)  + 
+  coord_flip() +
+   labs(title = "Deviance residual plot")
+```
+
+Finally, with our final model, we calculated the odds of a juror being striked based on a juror's race and its interactive terms. Using a covariance table, we were able to find the standard errors necessary for the confidence intervals. The confidence intervals are listed in the results section of the paper.
+
+```{r,fig.width=6,fig.height=4}
+interact3_apm_glm <- glm(struck_state_bin ~ accused + is_black + fam_accused + 
+                           death_hesitation + know_def + fam_law_enforcement + 
+                           same_race + is_black * fam_accused + is_black * know_def, 
+                           family = binomial, data = apm)
+summary(interact3_apm_glm, conf.int = TRUE)
+tidy(interact3_apm_glm, conf.int = TRUE)
+
+#Confidence interval for is_blackTRUE
+exp(1.7373)
+exp(1.44691177)
+exp(2.0322287)
+
+
+vcov(interact3_apm_glm)
+#Confidence interval for is_blackTRUE and fam_accusedTRUE
+estimate_interaction_1 <- (1)*1.7373 + (1)*0.8118
+se_interaction_1 <- sqrt((1^2)*(0.0222675869) + (1^2)*(0.1379991601) +
+                           (2)*(1)*(1)*(-0.0143242709))
+estimate_interaction_1 + se_interaction_1*(qt(.975, 2285))
+estimate_interaction_1 - se_interaction_1*(qt(.975, 2285))
+exp(1.837663)
+exp(3.260537)
+
+#Confidence interval for is_blackTRUE and know_defTRUE
+estimate_interaction_2 <- (1)*1.7373 + (1)*1.1620
+se_interaction_2 <- sqrt((1^2)*(0.0222675869) + (1^2)*(0.2515418874) +
+                           (2)*(1)*(1)*(-0.0133552082))
+estimate_interaction_2 + se_interaction_2*(qt(.975, 2285))
+estimate_interaction_2 - se_interaction_2*(qt(.975, 2285))
+exp(1.924504)
+exp(3.874096)
+
+```

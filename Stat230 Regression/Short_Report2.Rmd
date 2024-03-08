@@ -1,0 +1,225 @@
+---
+title: "Short Report 2"
+author: "Parker Johnson, Teagan Johnson"
+date: "10/28/2021"
+output:
+  pdf_document: default
+  word_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r, echo = FALSE, warning = FALSE, message = FALSE}
+library(skimr)
+library(ggplot2)
+library(broom)
+library(ggResidpanel)
+library(dplyr)
+library(kableExtra)
+library(Sleuth3)
+library(GGally)
+library(knitr)
+library(car)
+```
+
+## Introduction
+Air pollution has widely been considered to have negative effects on health. Because of this, there have been efforts to place restrictions on businesses and other entities regarding air pollution. In this study, we will investigate whether or not these restrictions are necessary by measuring air pollution’s effect on total age-adjusted mortality. Using a data set with information about weather, demographics, and air pollution from five metropolitan areas in the United States over the years 1959 to 1961, we were able to create a multiple linear regression model to conduct significance tests and analyze air pollution’s effect on the rate of mortality in these Metropolitan areas.
+
+```{r figs, echo=FALSE, warning = FALSE, message = FALSE, fig.width=6,fig.height=4,fig.cap="\\label{fig:figs}Summary of model"}
+mortality <- ex1217
+ggpairs(mortality, 
+        columns = c("Precip","JanTemp", "JulyTemp","Educ","Density", "NonWhite", "Mortality"), 
+        lower = list(continuous = "smooth"))
+
+```
+
+## Results
+Using mortality as the response variable and each of the other 12 weather/demographic terms as explanatory variables, we created a multiple linear regression model. To reduce collinearity in our model, we got rid of each of the insignificant terms using t tests. Our model after reduction was: $\mu(Mortality \mid X) = 1242 + 1.401(Precip) - 1.684(JanTemp) - 2.840(JulyTemp) - 16.16(Educ) + 0.00757(Density) + 5.275(NonWhite)$, with the relation of each term to one another indicated in Figure 1. This model didn’t satisfy the constant variance, linearity, or normal assumptions, which indicates the model is in need of transformations. We ultimately found that transforming Precip and NonWhite resulted in a model that best satisfied each of the MLR assumptions. There did appear to be some unusual data points in our exploratory data analysis. Upon further analysis, we found that two points, cases 7 (York, PA) and 20 (Miami, FL), could be considered outliers. Removing them later proved to change the significance of the model, justifying their removal, and our model satisfied the MLR assumptions even better. Now our model looks like this: $\mu(Mortality \mid X) = 1145.378 + 0.035(Precip)^2 - 1.064(JanTemp) - 2.215(JulyTemp) - 18.141(Educ) + 0.014(Density) + 28.966(sqrt(NonWhite))$. A table of this model is indicated in Figure 2.
+
+
+In our now complete model, the term $0.035(Precip)^2$ means that a 1 inch increase in the squared amount of mean rainfall is associated with a 0.035 increase in mean mortality rate per 100,000 people, the term -1.064(JanTemp) means that a 1 degree increase in the mean temperature in January is associated with a 1.064 decrease in mean mortality rate per 100,000 people, etc.
+
+
+Now we’re ready to conduct F-tests to see how the pollution terms are associated with mortality after accounting for weather and demographic information. After conducting an F-test with all three pollution terms, we got an F test statistic of 2.276 with a corresponding p value of 0.0325. This means that assuming pollution has no effect on mortality, the likelihood that we observed the results we did or more significant is 0.0325.
+Looking at each specific pollution term, we got p-values of 0.727 for NOX (F-stat = 0.124), 0.0593 for SO2 (F-stat = 3.724), and 0.853 for HC (F-stat = 0.0345).
+
+
+To further test the significance of the pollutant variables, we conducted an F-test for each of the 3 pairs of pollutants. After conducting these tests, we got an F test statistic of 1.949 with a corresponding p value of 0.0735 for NOX and SO2, an F test statistic of 3.410 with a corresponding p value of 0.00344 for NOX and HC, and an F test statistic of 2.125 with a corresponding p value of 0.0509 for SO2 and HC.
+
+
+## Discussion
+The F test statistic for all three terms combined was 2.276 with a corresponding p value of 0.0325; therefore, we have sufficient evidence to reject the null hypothesis and conclude that a combination of all three air pollutants has a significant effect on levels of mortality. However, when we look at the F tests for each pollutant term individually, we can conclude that no single pollutant on its own has a significant effect on levels of mortality when using a level of 5% significance.
+
+```{r figs2, echo=FALSE, warning = FALSE, message = FALSE, fig.width=6,fig.height=4,}
+mortality <- ex1217
+noOutlier <- mortality[-c(20, 7), ]
+noOutlier_lm <- lm(Mortality ~ I(Precip^2) + JanTemp + JulyTemp + 
+          Educ + Density + sqrt(NonWhite), 
+              data = noOutlier)
+kable(tidy((noOutlier_lm)), digits = 3, caption = "Figure 2")
+
+```
+
+This difference in significance between individual pollutants and the full group of three indicates that having a combination of the three pollutants does have a negative effect on mortality, but having just one pollutant does not affect mortality. A safe conclusion would be to restrict all types of air pollution, but it is also reasonable to conclude that having one but not all pollutants is acceptable. Placing a restriction solely on NOX and HC, for example, would only allow SO2 to be in the air which doesn’t have an effect on mortality. 
+
+
+What about having two pollutants in the air instead of just one? Looking at our “paired” F tests, we can conclude that having both NOX and HC (p-value=0.003) or HC and SO2 (p-value=0.051, roughly significant) in the air does negatively affect mortality. On the other hand, having both NOX and SO2 in the air does not significantly affect mortality (p-value=0.074). A reasonable conclusion based on this is that air pollution restrictions would help mortality if only HC were restricted. If HC were restricted, there would be no combination of NOX and HC or SO2 and HC, which would get rid of the negative effect on mortality.
+
+
+Our study does not provide insight as to any other negative effects air pollution may have on other aspects of health (e.g. environment, mental health, etc.). Future research should be conducted in order to further investigate the effects of air pollution on health. To reach more in-depth conclusions, it would be wise to control for more factors and also gather data from more cities. To reiterate, the scope of our conclusions reaches only the five metropolitan areas from 1959-1961, and only provides information on the effects of three types of air pollutants on total age-adjusted mortality when controlling for some weather and demographic factors.
+
+
+## Appendix
+
+The following is the R code used to reach our conclusions.
+
+First, we fitted the model with the weather and demographic terms in the model in order to create a well-fitted model before adding pollution terms.
+
+```{r,fig.width=6,fig.height=4}
+mortality <- ex1217
+mortality_lm <- lm(Mortality ~ Precip + Humidity + JanTemp + JulyTemp + Over65 + House + 
+          Educ + Sound + Density + NonWhite + WhiteCol + Poor, 
+              data = mortality)
+summary(mortality_lm)
+
+```
+
+Next, we looked at the summary command and eliminated the term with the highest t-value. Then we conducted another t test and once again removed the term with the highest t value. After removing humidity, over65, house, sound, whitecol, and poor, all the terms in the model were significant.
+
+
+```{r,fig.width=6,fig.height=4}
+test3_lm <- lm(Mortality ~ Precip + JanTemp + JulyTemp + Over65 + House + 
+          Educ + Sound + Density + NonWhite + WhiteCol, 
+              data = mortality)
+summary(test3_lm)
+
+
+test2_lm <- lm(Mortality ~ Precip + JanTemp + JulyTemp + Over65 + House + 
+          Educ + Density + NonWhite, 
+              data = mortality)
+summary(test2_lm)
+
+
+test_lm <- lm(Mortality ~ Precip + JanTemp + JulyTemp + 
+          Educ + Density + NonWhite, 
+              data = mortality)
+summary(test_lm)
+```
+
+
+Now that collinear and insignificant terms were removed, we needed to check model assumptions. Without transformations, the assumption of constant variance is not met for the terms Precip and NonWhite.
+
+```{r,fig.width=6,fig.height=4}
+resid_panel(test_lm, plots = c("resid", "qq"))
+resid_xpanel(test_lm, smoother = TRUE)
+```
+
+After transforming Precip with a quadratic term and NonWhite with a square root term, our MLR assumptions are met, but outliers should still be checked for.
+
+```{r,fig.width=6,fig.height=4}
+testtransform_lm <- lm(Mortality ~ I(Precip^2) + JanTemp + JulyTemp +  
+          Educ + Density + sqrt(NonWhite), 
+              data = mortality)
+summary(testtransform_lm)
+resid_panel(testtransform_lm, plots = c("resid", "qq"))
+resid_xpanel(testtransform_lm, smoother = TRUE)
+```
+
+We saw that case 60, which is York, PA, and case 7, which is Miami, FL, had relatively significant cook’s distance, so we decided to remove them. Another reason we decided to remove these points was that the residual plots showed much stronger linearity after removing the outliers, as seen in the new residual plots.
+
+```{r,fig.width=6,fig.height=4}
+plot(test_lm, which = 4, id.n = 5)
+mortality[c(7, 20), ]
+noOutlier <- mortality[-c(20, 7), ]
+noOutlier_lm <- lm(Mortality ~ I(Precip^2) + JanTemp + JulyTemp + 
+          Educ + Density + sqrt(NonWhite), 
+              data = noOutlier)
+summary(noOutlier_lm)
+resid_panel(noOutlier_lm, plots = c("resid", "qq"))
+resid_xpanel(noOutlier_lm, smoother = TRUE)
+```
+
+With the outliers removed, our MLR assumptions are met more strongly than with the previous model. We now have a more concise model to incorporate the pollution variables into the model.
+
+```{r,fig.width=6,fig.height=4}
+noOutlier <- mortality[-c(20, 7), ]
+noOutlier_lm <- lm(Mortality ~ I(Precip^2) + JanTemp + JulyTemp + 
+          Educ + Density + sqrt(NonWhite), 
+              data = noOutlier)
+summary(noOutlier_lm)
+resid_panel(noOutlier_lm, plots = c("resid", "qq"))
+resid_xpanel(noOutlier_lm, smoother = TRUE)
+```
+
+We now need to check if the pollution terms are significant after accounting for weather and socioeconomic factors. To do this, we first conducted an overall F-stat test, to see if any of the pollution terms are significant. With an F-stat of 2.276 and a corresponding p-value of 0.0325, we can conclude that all of the pollution terms combined are statistically significant in our model.
+
+```{r,fig.width=6,fig.height=4}
+pollutionSig_lm <- lm(Mortality ~ I(Precip^2) + JanTemp + JulyTemp + 
+          Educ + Density + sqrt(NonWhite) + NOX + SO2 + HC, 
+              data = noOutlier)
+anova(pollutionSig_lm)
+Fstat <- ((126 + 3643 + 2601)/3)/933
+Fstat
+1 - pf(Fstat, 9, 48)
+```
+
+Finally, we conducted individual F-stat tests to determine the significance level of each individual pollution term after accounting for weather and socioeconomic factors. NOX had an F-stat of 0.124 and a corresponding p-value of 0.727, SO2 had a F-stat of 3.724 and a corresponding p-value of 0.0503, and HC had an F-stat of 0.035 and a corresponding p-value of 0.853. Therefore, none of the pollution terms individually are significant after accounting for weather and socioeconomic factors.
+
+```{r,fig.width=6,fig.height=4}
+pollutionNOX_lm <- lm(Mortality ~ I(Precip^2) + JanTemp + JulyTemp + 
+          Educ + Density + sqrt(NonWhite) + NOX, 
+              data = noOutlier)
+anova(pollutionNOX_lm)
+
+pollutionSO2_lm <- lm(Mortality ~ I(Precip^2) + JanTemp + JulyTemp + 
+          Educ + Density + sqrt(NonWhite) + SO2, 
+              data = noOutlier)
+anova(pollutionSO2_lm)
+
+pollutionHC_lm <- lm(Mortality ~ I(Precip^2) + JanTemp + JulyTemp + 
+          Educ + Density + sqrt(NonWhite) + HC, 
+              data = noOutlier)
+anova(pollutionHC_lm)
+```
+
+However, after conducting F-stat tests for each pair of pollutants, we got an F test statistic of 1.949 with a corresponding p value of 0.0735 for NOX and SO2, an F test statistic of 3.410 with a corresponding p value of 0.00344 for NOX and HC, and an F test statistic of 2.125 with a corresponding p value of 0.0509 for SO2 and HC.
+
+```{r,fig.width=6,fig.height=4}
+# NOT Significant
+# This test if for pairs of pollutants
+# NOX SO2
+pollutionSig_lm_NOX_SO2 <- lm(Mortality ~ I(Precip^2) + JanTemp + JulyTemp +
+          Educ + Density + sqrt(NonWhite) + NOX + SO2,
+              data = noOutlier)
+#summary(pollutionSig_lm)
+anova(pollutionSig_lm_NOX_SO2)
+Fstat <- ((126 + 3643)/2)/967
+Fstat
+1 - pf(Fstat, 8, 49)
+
+# SIGNIFICANT
+# This test if for pairs of pollutants
+# NOX HC
+pollutionSig_lm_NOX_HC <- lm(Mortality ~ I(Precip^2) + JanTemp + JulyTemp +
+          Educ + Density + sqrt(NonWhite) + NOX + HC,
+              data = noOutlier)
+#summary(pollutionSig_lm)
+anova(pollutionSig_lm_NOX_HC)
+Fstat <- ((126 + 6127)/2)/917
+Fstat
+1 - pf(Fstat, 8, 49)
+
+# Barely NOT Significant
+# This test if for pairs of pollutants
+# SO2 HC
+pollutionSig_lm_HC_SO2 <- lm(Mortality ~ I(Precip^2) + JanTemp + JulyTemp +
+          Educ + Density + sqrt(NonWhite) + SO2 + HC,
+              data = noOutlier)
+#summary(pollutionSig_lm)
+anova(pollutionSig_lm_HC_SO2)
+Fstat <- ((3547 + 538)/2)/961
+Fstat
+1 - pf(Fstat, 8, 49)
+```
