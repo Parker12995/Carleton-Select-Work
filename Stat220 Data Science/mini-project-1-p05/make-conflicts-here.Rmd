@@ -1,0 +1,33 @@
+---
+title: "Let's cause a merge conflict!"
+author: "Project team 5"
+output: pdf_document
+---
+
+## Code chunk to change
+
+
+```{r name, echo=FALSE, message=FALSE, eval=TRUE, warning=FALSE}
+
+library(tidyverse)
+
+plastic_waste <- read_csv("https://raw.githubusercontent.com/rstudio-education/datascience-box/master/course-materials/lab-instructions/lab-02/data/plastic-waste.csv")
+
+plastic_waste %>% 
+  mutate(coastal_pop_prop = coastal_pop / total_pop) %>%
+  filter(plastic_waste_per_cap < 3) %>%
+  ggplot(aes(x = coastal_pop_prop, y = plastic_waste_per_cap, color = continent)) + 
+    geom_point() +
+    geom_smooth(color = "black") +
+    scale_color_viridis_d() +
+    labs(x = "Coastal population proportion (Coastal / total population)", 
+         y = "Plastic waste per capita ", 
+         color = "Continent",
+         title = "Plastic waste vs. coastal population proportion",
+         subtitle = "by continent") +
+    theme_minimal()
+```
+
+# Acknowledgement
+
+This instruction is adapted from materials provided by Adam Loy.

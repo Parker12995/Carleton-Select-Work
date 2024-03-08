@@ -1,0 +1,219 @@
+---
+title: "Analysis of Covid data in Canada"
+author: "David Chae and Parker Johnson"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE, warning = FALSE, message = FALSE)
+
+# install.packages("devtools")
+# devtools::install_github("RamiKrispin/coronavirus")
+
+
+library(coronavirus)
+library(tidyverse)
+library(knitr)
+library(dplyr)
+library(lubridate)
+library(ggplot2)
+library(autoimage)
+library(broom)
+library(ggthemes)
+select <- dplyr::select
+```
+
+
+# Introduction
+
+With the COVID-19 pandemic still ongoing, there is an abundance of data that can be analyzed. We decided to analyze data regarding Canada’s COVID cases and vaccinations, because we were curious to learn about this virus outside of the US and explore provincial data when possible. We used two datasets about COVID cases and vaccinations that were obtained from Rami Krispin on Github, who scraped the data from the Johns Hopkins University Center for Systems Science and Engineering. We used time series analysis to investigate the types of COVID cases and vaccination rates over time, as well as creating maps to investigate total COVID cases per Canadian province.
+
+
+# Results
+
+
+
+
+```{r} 
+# Filtering to Canada and getting rid of unnecessary data variables
+Canada_covid <- coronavirus %>% 
+  filter(country == "Canada") %>%
+  select(-c("uid", "iso2", "iso3", "code3", "continent_name", 
+            "continent_code", "combined_key")) %>%
+  mutate(cases = ifelse(cases < 0, 0, cases)) #Change negative case numbers to 0
+
+# Filtering to Canada for the vaccine dataset and removing unnecessary variables
+Canada_vaccine <- covid19_vaccine %>% 
+  filter(country_region == "Canada") %>%
+  select(-c("uid", "iso2", "iso3", "code3", "continent_name", 
+            "continent_code", "combined_key", "fips", "report_date_string")) %>%
+  mutate(province_state = replace_na(province_state, "Canada"))
+
+```
+
+```{r}
+#Joining the two datasets into one; will be used for the table
+CanadaFull <- full_join(Canada_covid, Canada_vaccine, by = c("date", 
+      "lat", "long", "population", "country" = "country_region", 
+      "province" = "province_state")) %>%
+  mutate(province = replace_na(province, "Canada")) %>% # Changing NA province 
+                              #values to Canada to represent the whole country
+  mutate(doses_admin = replace_na(doses_admin, 0)) %>% # Replacing NA values with 0
+  mutate(people_partially_vaccinated = replace_na(people_partially_vaccinated, 0)) %>%
+  mutate(people_fully_vaccinated = replace_na(people_fully_vaccinated, 0))
+```
+
+
+From figure 1, we can observe that from the start of this dataset(January 2020) until about the end of July 2021, the daily confirmed cases and recovery reports tended to stay about the same and that, at least compared to the number of confirmed cases and recovery reports, the number of deaths due to Covid remained negligible throughout the 2 year period. Another observation to note is that starting from the beginning of August 2021, there are no reported cases of recovery. We believed that this was most likely due to the data set not containing any values, as it is extremely unlikely that no one in Canada recovered from Covid between August 2021 and now. We later discovered that the data collection for recovery cases stopped around this time. Finally, from around October 2020 to around December 2021, the confirmed cases seemed to follow a sinusoidal pattern with 3 cycles before suddenly spiking in numbers around late December 2021.  
+
+
+
+```{r}
+Canada_covid %>% # Data plot for the cases
+  drop_na(cases) %>% #Remove NA values
+  group_by(date, type) %>%
+  summarise(cases = sum(cases)) %>% #Sum of cases across each province for each day
+  ggplot(mapping = aes(x = date)) + 
+    geom_point(mapping = aes(y = cases, color = type), size = 1) + 
+    labs(title = "Figure 1: Canada COVID cases by type over time", 
+       x = "Date", y = "Number of cases", color = "Type") +
+  theme(plot.title = element_text(hjust = 0.5))
+```
+
+
+Observing figure 2, throughout the 2 year dataset, the population of Canada was assumed to be approximately constant. Both the number of doses administered and the number of people fully vaccinated steadily rose throughout the observation period. The rate at which the doses administered increased seemed to shift 3 times throughout the observation period, rapidly increasing around Mid May 2021, decreasing around August 2021 before increasing again in December 2021. The number of people fully vaccinated rose at a slow rate before rising extremely quickly from June 2021 to August 2021 and returning to a slow rise, approaching, but not exceeding, the population of Canada.
+
+
+```{r}
+Canada_vaccine %>% # Data plot for the vaccinations
+  group_by(date) %>%
+  filter(province_state == "Canada") %>%
+  mutate("doses admin" = replace_na(doses_admin, 0)) %>% # Replace NA values with 0
+  mutate("people partially vaccinated" = replace_na(people_partially_vaccinated, 0)) %>%
+  mutate("people fully vaccinated" = replace_na(people_fully_vaccinated, 0)) %>% 
+  summarise("doses administered" = sum(doses_admin), "people fully vaccinated" =
+              sum(people_fully_vaccinated), population) %>%
+  pivot_longer(names_to = "variable", values_to = "total_count", cols = 2:4) %>%
+  #Pivot longer to make the 3 variables into their own columns
+  ggplot(mapping = aes(x = date, y = total_count, color = variable)) + 
+    geom_point() + 
+    labs(title = "Figure 2: Vaccination and doses versus population in Canada", 
+       x = "Date", y = "Number of people", color = "Variable") +
+    theme(plot.title = element_text(hjust = 0.5))
+```
+
+
+We then looked at cases per province, as shown in the table below. We found the total number of confirmed cases, total deaths, and the total number of fully vaccinated individuals within each province. However, the datasets did not contain vaccination information per province, which will be more thoroughly discussed later. The province with the highest number of confirmed cases is Ontario with 1054061 cases, and the highest number of deaths is Quebec with 13,481 deaths. The lowest number of cases and deaths is Nunavut, and Quebec contains the worst proportion of individuals who die out of those confirmed to have COVID.
+
+
+```{r}
+Table <- CanadaFull %>%
+  group_by(province, type) %>%
+  summarize("total cases" = sum(cases), 
+            "total vaxxed" = max(people_fully_vaccinated)) %>%
+  drop_na(type) %>% #Remove recovery cases because of missing information
+  filter(!province %in% c("Diamond Princess", "Grand Princess", 
+                          "Repatriated Travellers", "Canada")) %>%
+  #Remove strange places listed as provinces
+  pivot_wider(names_from = "type", values_from = "total cases") %>%
+  mutate("death prop" = death/confirmed)
+kable(Table)
+```
+
+
+From these maps in figures 4 and 5, we can see that Ontario has the highest number of total confirmed COVID cases of the Canadian provinces, while provinces such as the Yukon, Northwest Territories, and Nunavut have a low number of confirmed cases, which is understandable given the populations of each province. The second map shows that Northwest Territories have the highest proportion of confirmed cases per population, with over 14% of the province’s population contracting COVID at some point. Newfoundland and Labrador have the lowest proportion of confirmed COVID cases.
+
+
+```{r}
+data(canada) #Import map data
+
+TotalCases <- CanadaFull %>% #Create table
+  filter(type == "confirmed", !province %in% c("Diamond Princess", 
+              "Grand Princess", "Repatriated Travellers")) %>% #Remove strange 
+                                        #places that aren't Canadian provinces
+  group_by(province) %>%
+  summarize(Total_cases = sum(cases), 
+            population = max(population)) %>%
+  arrange(factor(province, levels = c( "Quebec", "Nova Scotia", 
+          "Saskatchewan", "Alberta", "Newfoundland and Labrador", 
+          "British Columbia", "New Brunswick", "Prince Edward Island", 
+          "Yukon", "Manitoba", "Ontario", "Nunavut" ,"Northwest Territories" )))
+      #Arrange the provinces to match the Provinces vector below
+
+
+canada_df <- tidy(canada)
+Provinces <- c( "Quebec", "Nova Scotia", "Saskatchewan", "Alberta", 
+            "Newfoundland and Labrador", "British Columbia", "New Brunswick", 
+            "Prince Edward Island", "Yukon Territory", "Manitoba", "Ontario", 
+            "Nunavut" ,"Northwest Territories" )
+
+cases <- data.frame(Province = Provinces, Cases = TotalCases$Total_cases) 
+      #Transform into a data frame with the cases data from the table
+
+mydata <- left_join(canada_df, cases, by = c("region" = "Province"))
+      #Join the cases dataframe with the map data
+mapTotal <- ggplot(data=mydata, aes(x=long, y=lat, group=group)) + 
+  geom_polygon(aes(fill = Cases)) +
+  coord_map(xlim=c(-150.8,-30),ylim=c(40,80)) + #Limit coordinates to just Canada
+  theme_map() + 
+  theme(legend.position="right") + 
+  labs(title = "Figure 4: Total Confirmed COVID Cases", 
+       fill = "Number of Cases") +
+  theme(plot.title = element_text(hjust = 0.5))
+mapTotal #Plot the map
+```
+
+
+```{r}
+CasesPerPop <- CanadaFull %>% #Create table
+  filter(type == "confirmed", !province %in% c("Diamond Princess", 
+              "Grand Princess", "Repatriated Travellers")) %>% #Remove strange
+                                        #places that aren't Canadian provinces
+  group_by(province) %>%
+  summarize(Total_cases = sum(cases), 
+            pop = max(population), cases_per_pop = Total_cases / pop) %>%
+  arrange(factor(province, levels = c( "Quebec", "Nova Scotia", "Saskatchewan", 
+              "Alberta", "Newfoundland and Labrador", "British Columbia", 
+              "New Brunswick", "Prince Edward Island", "Yukon", "Manitoba", 
+              "Ontario", "Nunavut" ,"Northwest Territories" )))
+          #Arrange the provinces to match the Provinces vector below
+
+
+casesPop <- data.frame(Province = Provinces, Cases = CasesPerPop$cases_per_pop) 
+
+mydata <- left_join(canada_df, casesPop, by = c("region" = "Province"))
+mapPop <- ggplot(data=mydata, aes(x=long, y=lat, group=group)) + 
+  geom_polygon(aes(fill = Cases)) +
+  coord_map(xlim=c(-150.8,-30),ylim=c(40,80)) + #Limit coordinates to just Canada
+  theme_map() + 
+  theme(legend.position="right") + 
+  labs(title = "Figure 5: COVID Cases Per Province Population", 
+       fill = "Number of Cases") +
+  theme(plot.title = element_text(hjust = 0.5))
+mapPop
+```
+
+
+# Discussion
+
+From these results, we were able to achieve a better understanding of the COVID situation in Canada. These results show that, in the time period in which we have recovery data, Canada has done very well as a country in terms of keeping the infection rate and recovery rate relatively equal. Also, as of today, Canada has a large proportion of its population having at least one dose of the vaccine, with the total amount of vaccine doses administered being a little over twice the population and fully vaccinated people approaching the total population. These results also explain the prevalence of the virus within each province of Canada.
+
+One limitation of our analysis is that the original dataset stopped recording values for the number of individuals who recovered from COVID after August 2021. Therefore, our graph of the types of cases is incomplete and does not illustrate the true values for those who recovered from COVID. Another limitation is that the original dataset did not contain vaccination information within each province. While the steps we followed to produce the table were correct, accurate values were not produced for the total number of fully vaccinated individuals because either the information didn’t exist, or the dataset had an error and recorded the fully vaccinated information for all of Canada. This was especially the case for October 29th and 31th 2021 where data that would have made sense to have been for Canada as a whole was recorded for Alberta. 
+
+
+# Visualization and Data Wrangling
+
+For our cases by type plot, we grouped the data by date and type of case, then summed the cases together before creating a point plot. 
+
+For our vaccination plot, after grouping by date, we filtered our data for just data points for Canada as a whole, as we discovered that for some of the dates the data was being recorded for each province as well as Canada as a whole, essentially double counting the data. We then replaced the NA values in the doses_admin, people_partially_vaccinated, and people_fully_vaccinated variables with zero for the sake of analysis.
+
+For our table, we grouped by province and case type, then created a summary table for total cases and people fully vaccinated. We then removed recovery since it contained many NA values, removed 3 strange places listed as a province, and transformed the table to flush the types of cases into columns instead of rows. Finally, we added a column for the proportion of people who died out of confirmed cases.
+
+For our maps, we imported data that contained information for creating a map of Canada. We then created tables corresponding to total cases per province and cases per a province’s population, transformed the information into a data frame, then joined this data frame with the data that contained the map of Canada. From here, we could plot the map and fill each province with a color corresponding to the number of cases / cases per province’s population.
+
+For our data wrangling steps, first, we decided to look into Canada, so we filtered out the data points containing Canada. 
+We also decided that some variables, such as the country and continent codes, were unnecessary in our observations, so we removed them from our dataset for cleanliness. 
+We noticed that some numerical data points were negative or did not have any value. For the sake of analysis, we set those data points to be zero. 
+Finally, the original data sets contained data points for Canada as a whole and left the province variable for them blank. Since it was useful for us to analyze those data points, we set the province variable to “Canada”. 
+
+

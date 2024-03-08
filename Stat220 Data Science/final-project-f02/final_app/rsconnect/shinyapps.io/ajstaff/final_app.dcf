@@ -1,0 +1,11 @@
+name: final_app
+title:
+username:
+account: ajstaff
+server: shinyapps.io
+hostUrl: https://api.shinyapps.io/v1
+appId: 5860937
+bundleId: 5689186
+url: https://ajstaff.shinyapps.io/final_app/
+when: 1647391952.89975
+lastSyncTime: 1647391952.89976

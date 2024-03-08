@@ -1,0 +1,263 @@
+---
+title: "garrett_draft"
+author: "Garrett Chappell"
+date: "3/13/2022"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, collapse = TRUE, 
+                      warning = FALSE, message = FALSE)
+
+library(tidyverse)
+library(lubridate)
+library(rvest)
+library(babynames)
+library(titanic)
+library(stringr)
+library(polite)
+library(ggthemes)
+library(shiny)
+library(ggiraph)
+library(plotly)
+library(maps)
+library(leaflet)
+library(sp)
+library(maptools)
+library(tidymodels)
+library(probably)
+library(knitr)
+library(kableExtra)
+```
+
+## Data Wrangling
+
+```{r}
+cbb_raw <- read.csv("~/Stat220/Assignments/final-project-f02/cbb.csv")
+
+cbb_clean <- cbb_raw %>%
+  mutate(sweet_16 = ifelse(POSTSEASON %in% c("2ND", "Champions", "F4", "E8", "S16"), "yes", "no")) %>%
+  drop_na() %>%
+  mutate(sweet_16 = as.factor(sweet_16)) %>%
+  mutate(sweet_16 = fct_relevel(sweet_16, "yes", "no")) %>%
+  select(-CONF, -POSTSEASON)
+row.names(cbb_clean) <- str_c(cbb_clean$TEAM, cbb_clean$YEAR)
+cbb_clean <- cbb_clean %>%
+  select(-TEAM, -YEAR)
+```
+
+## Logistic Regression Model
+
+```{r}
+set.seed(1234)
+cbb_split <- initial_split(cbb_clean, prop = 0.80, strata = sweet_16) #splitting dataset
+cbb_train <- cbb_split %>%
+  training()
+cbb_test <- cbb_split %>%
+  testing()
+fitted_logistic_model <- logistic_reg() %>% 
+  set_engine("glm") %>%
+  set_mode("classification") %>%
+  fit(sweet_16~., data = cbb_train)
+#tidy(fitted_logistic_model)
+pred_prob <- predict(fitted_logistic_model, new_data = cbb_test, type = "prob")
+cbb_plot <- cbb_test %>% 
+  bind_cols(pred_prob)
+ggplot(cbb_plot, aes(x = .pred_yes, fill = sweet_16)) +
+  geom_density(alpha = 0.4) +
+  labs(title = "Sweet 16 probability estimates by actual status", subtitle = "test data", fill = "truth")
+cbb_results <- cbb_test %>%
+  bind_cols(pred_prob) %>%
+  mutate(.pred_class = make_two_class_pred(.pred_yes, levels(sweet_16), threshold = .5)) %>%
+  select(sweet_16, contains(".pred"))
+cbb_results %>% 
+  conf_mat(sweet_16, .pred_class) %>% 
+  autoplot(type="heatmap")
+```
+
+## Applying the model to 2019
+
+```{r}
+cbb_apply <- cbb_raw %>%
+  mutate(sweet_16 = ifelse(POSTSEASON %in% c("2ND", "Champions", "F4", "E8", "S16"), "yes", "no")) %>%
+  drop_na() %>%
+  mutate(sweet_16 = as.factor(sweet_16)) %>%
+  mutate(sweet_16 = fct_relevel(sweet_16, "yes", "no")) %>%
+  filter(YEAR == 2019) %>%
+  select(-CONF, -POSTSEASON, -YEAR)
+apply_pred_prob <- predict(fitted_logistic_model, new_data = cbb_apply, type = "prob")
+cbb_apply <- cbb_apply %>% 
+  bind_cols(apply_pred_prob)
+cbb_apply <- cbb_apply %>%
+  mutate(prediction = make_two_class_pred(.pred_yes, levels = c("yes", "no"), threshold = .5))
+cbb_apply %>% 
+  conf_mat(sweet_16, prediction) %>% 
+  autoplot(type="heatmap")
+```
+
+## Applying the model to any year
+
+```{r eval=FALSE}
+cbb_apply <- cbb_raw %>%
+  mutate(sweet_16 = ifelse(POSTSEASON %in% c("2ND", "Champions", "F4", "E8", "S16"), "yes", "no")) %>%
+  drop_na() %>%
+  mutate(sweet_16 = as.factor(sweet_16)) %>%
+  mutate(sweet_16 = fct_relevel(sweet_16, "yes", "no")) %>%
+  filter(YEAR == input$year) %>% #take in the input year
+  select(-CONF, -POSTSEASON, -YEAR)
+apply_pred_prob <- predict(fitted_logistic_model, new_data = cbb_apply, type = "prob")
+cbb_apply <- cbb_apply %>% 
+  bind_cols(apply_pred_prob)
+cbb_apply %>% #Table of just the teams predicted
+  slice_max(order_by = .pred_yes, n = 16) %>%
+  select(TEAM) %>%
+  kbl() %>%
+  kable_paper("striped", full_width = F)
+```
+
+## Applying the model to 2021
+
+Doesn't quite work because the number of games was weird for a 2021 season (covid cancellations)?, got 5/16 correct when ranking by highest prediction
+
+```{r}
+cbb_apply2 <- read.csv("~/Stat220/Assignments/final-project-f02/cbb21.csv")
+cbb_apply2 <- cbb_apply2 %>%
+  drop_na() %>%
+  select(-CONF)
+apply_pred_prob2 <- predict(fitted_logistic_model, new_data = cbb_apply2, type = "prob")
+cbb_apply2 <- cbb_apply2 %>% 
+  bind_cols(apply_pred_prob2)
+cbb_apply2 <- cbb_apply2 %>%
+  mutate(prediction = make_two_class_pred(.pred_yes, levels = c("yes", "no"), threshold = .5))
+cbb_apply2 %>%
+  slice_max(order_by = .pred_yes, n = 16)
+```
+
+## Applying the model to 2022
+
+```{r}
+#Web scraping and data wrangling
+cbb_2022_full <- bow(url = "https://barttorvik.com/trank.php?year=2022&sort=&hteam=&t2value=&conlimit=NCAA&state=All&begin=20211101&end=20220501&top=0&revquad=0&quad=5&venue=All&type=All&mingames=0#") %>% 
+  scrape() %>% 
+  html_elements(css = "table") %>% 
+  html_table()
+cbb_2022_lowrow <- bow(url = "https://barttorvik.com/trank.php?year=2022&sort=&hteam=&t2value=&conlimit=NCAA&state=All&begin=20211101&end=20220501&top=0&revquad=0&quad=5&venue=All&type=All&mingames=0#") %>% 
+  scrape() %>% 
+  html_elements(css = "td > .lowrow") %>% 
+  html_text()
+cbb_2022_table <- cbb_2022_full[[1]]
+cbb_2022_lowrow <- data.frame(matrix(unlist(cbb_2022_lowrow), nrow=68, byrow=TRUE),stringsAsFactors=FALSE)
+colnames(cbb_2022_lowrow) <- cbb_2022_table[1,5:22]
+colnames(cbb_2022_table) <- cbb_2022_table[1,]
+cbb_2022_table <- cbb_2022_table %>%
+  filter(Rk != "Rk") %>%
+  select(-Rk, -Conf) %>%
+  mutate(Team = str_remove_all(Team, "[[:punct:]]"))
+remove_lowrow <- function(table, lowrow) {   # Function to remove lowrow values from table
+  for (i in seq_along(lowrow)) {
+    str <- str_c(as.character(lowrow[[i]]), "$")
+    table[[i]] <- str_replace(string = table[[i]], pattern = str, replacement = "")
+  }
+  table
+}
+cbb_2022_table[,3:20] <- remove_lowrow(cbb_2022_table[,3:20], cbb_2022_lowrow)
+cbb_2022_table <- cbb_2022_table %>%
+  mutate(Rec = str_extract(Rec, "[0-9]{2}")) %>%
+  mutate(Seed = parse_number(Team)) %>%
+  mutate(Team = str_trim(str_extract(Team, "[^0-9]+")))
+colnames(cbb_2022_table) <- colnames(cbb_apply2)
+cbb_2022_table <- cbb_2022_table %>%
+  mutate_at(2:20, parse_number)
+```
+
+```{r}
+#Applying the model and getting the predicted teams and their stats
+apply_pred_prob3 <- predict(fitted_logistic_model, new_data = cbb_2022_table, type = "prob")
+cbb_2022_table <- cbb_2022_table %>% 
+  bind_cols(apply_pred_prob3)
+cbb_2022_table <- cbb_2022_table %>%
+  mutate(prediction = make_two_class_pred(.pred_yes, levels = c("yes", "no"), threshold = .5))
+cbb_2022_table %>% #Table of just the teams predicted
+  slice_max(order_by = .pred_yes, n = 16) %>%
+  select(TEAM) %>%
+  knitr::kable(type = "html")
+cbb_2022_table %>% #Table of all stats of predicted teams
+  slice_max(order_by = .pred_yes, n = 16) %>%
+  select(-prediction, -.pred_yes, -.pred_no) %>%
+  knitr::kable(type = "html")
+readr::write_csv(cbb_2022_table, "cbb22.csv")
+
+
+#To add to shiny app
+cbb22 <- read.csv("~/Stat220/Assignments/final-project-f02/cbb22.csv")
+cbb22 %>% #Table of just the teams predicted
+  slice_max(order_by = .pred_yes, n = 16) %>%
+  select(TEAM) %>%
+  kbl() %>%
+  kable_paper("striped", full_width = F)
+cbb22 %>% #Table of all stats of predicted teams
+  slice_max(order_by = .pred_yes, n = 16) %>%
+  select(-prediction, -.pred_yes, -.pred_no) %>%
+  kbl() %>%
+  kable_paper("striped", full_width = F) %>%
+  row_spec(0, angle = -45)
+```
+
+
+## Stats Legend
+ 
+Statistic Abbreviation    |   Statistic    
+--:|--------- 
+G   |   Number of games played
+W   |   Number of games won
+ADJOE   |   Adjusted Offensive Efficiency (An estimate of the offensive efficiency (points scored per 100 possessions) a team would have against the average Division I defense)
+ADJDE   |   Adjusted Defensive Efficiency (An estimate of the defensive efficiency (points allowed per 100 possessions) a team would have against the average Division I offense)
+BARTHAG   |   Power Rating (Chance of beating an average Division I team)
+EFG_O   |   Effective Field Goal Percentage Shot
+EFG_D   |   Effective Field Goal Percentage Allowed
+TOR   |   Turnover Percentage Allowed (Turnover Rate)
+TORD   |   Turnover Percentage Committed (Steal Rate)
+ORB   |   Offensive Rebound Rate
+DRB   |   Offensive Rebound Rate Allowed
+FTR   |   Free Throw Rate (How often the given team shoots Free Throws)
+FTRD   |   Free Throw Rate Allowed
+X2P_O   |   Two-Point Shooting Percentage
+X2P_D   |   Two-Point Shooting Percentage Allowed
+X3P_O   |   Three-Point Shooting Percentage
+X3P_D   |   Three-Point Shooting Percentage Allowed
+ADJ_T   |   Adjusted Tempo (An estimate of the tempo (possessions per 40 minutes) a team would have against the team that wants to play at an average Division I tempo)
+WAB   |   Wins Above Bubble (Wins against teams that made the NCAA Tournament)
+SEED   |   Seed in the NCAA March Madness Tournament
+
+## Text for model tab in app
+
+To predict teams that would make the Sweet 16 out of the 68 teams that made the tournament, we fitted a logistic regression model to data from the 2013 through 2019 tournaments. The model takes in the numerical variables G, W, ADJOE, ADJDE, BARTHAG, EFG_O, EFG_D, TOR, TORD, ORB, DRB, FTR, FTRD, X2P_O, X2P_D, X3P_O, X3P_D, ADJ_T, WAB, and SEED (abbreviations explained in the table below). Based on this model, we can determine which 16 teams are most likely to make the Sweet 16 based on the season data from that year.
+
+However, there are a couple things this model cannot predict. It returns the 16 teams most likely to make the Sweet 16 based on season-long statistics, regardless of what the actual bracket looks like. This means that two teams that this model predicts will make the Sweet 16 might actually meet in an earlier round. This model also does not take into account the teams that each team will face on their way to the Sweet 16, as some teams may have an easier path than others. 
+
+Based on season-long statistics found on the website barttorvik.com, our model predicts that the 2022 Sweet 16 will include the teams shown below. However, this does not take into account the real layout of the bracket, so this will not be the exact Sweet 16. For example, Richmond plays Iowa in the first round, so both of these teams will not make it.
+
+## Technical Report
+ 
+### Model Creation and Application
+ 
+ - Initial data wrangling involved reading file from .csv and adding a column based on whether a team went to the Sweet Sixteen that year, coded as a factor with two levels
+    - This initial data is found in the file "cbb.csv"
+ - Removed columns that would not be used in the logistic regression model (Conf, Postseason, Team, and Year)
+ - Split data into 80% training and 20% testing, using the set seed of 1234
+ - Fit logistic regression model to the training data
+ - Tested model on the testing data by creating a confusion matrix and double density plot
+    - Metrics: Accuracy = 0.9375, specificity = 0.945, sensitivity = 0.913
+    - The double density plot and confusion matrix for the test data can be seen in "garrett_draft.Rmd"
+ - Applied the model to the 2019 tournament and it predicted 14 of the 16 teams correctly
+ - Web scraping the data from this years tournament required a lot of steps, done in the file "garrett_draft.Rmd":
+    - Web scrape the stats for each of the tournament teams from barttorvik.com
+    - Each entry had unwanted digits concatenated to the end of the number, and could not isolate the correct number using CSS selectors
+    - Web scraped just the unwanted numbers from barttorvik.com using the CSS selector for .lowrow
+    - Wrote function to go through each datapoint and remove the unwanted numbers from the end of each entry
+    - Cleaned up data to include the same data and variable names that were used to make the logistic regression model
+ - Applied the logistic regression model to the data from this year
+    - Saved this file as "cbb22.csv"
+ - Sorted the data to find the 16 teams most likely to be in the Sweet Sixteen according to this model
+ - The teams are: Iowa, Duke, Purdue, Virginia Tech, Kansas, Arizona, Alabama, Michigan State, Richmond, Arkansas, North Carolina, Houston, Texas Tech, Villanova, Creighton, and Saint Marys
+

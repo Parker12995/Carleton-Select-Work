@@ -1,0 +1,90 @@
+---
+title: "Let's cause a merge conflict!"
+output: github_document
+---
+
+
+## Setup
+
+1. Everyone should clone the repo.
+
+2. Assign the numbers 1 and 2 (and 3) to each of the team members.
+
+
+## Let's cause a merge conflict!
+
+Our goal is to see two different types of merges: first we'll see a type of merge that git can't figure out on its own how to do on its own (a **merge conflict**) and requires human intervention, then another type of where that git can figure out how to do without human intervention.
+
+Doing this will require some tight choreography, so pay attention!
+
+Take turns in completing the exercise, only one member at a time.
+**When it's not your turn just watch, not doing anything on your own projects (this includes not even pulling changes!)** until it's your turn.
+
+**Before starting**: everyone should have the repo cloned and know which role number(s) they are.
+
+**Role 1:**
+
+-   Change the team name to your actual team name.
+-   Knit, commit, push.
+
+🛑 Make sure the previous role has finished before moving on to the next step.
+
+**Role 2:**
+
+-   Change the team name to some other word.
+-   Knit, commit, push. You should get an error.
+-   Pull. Take a look at the document with the merge conflict.
+-   Clear the merge conflict by editing the document to choose the correct/preferred change.
+-   Knit.
+-   **Click the Stage checkbox** for all files in your Git tab. Make sure they all have check marks, not filled-in boxes.
+-   Commit and push.
+
+🛑 Make sure the previous role has finished before moving on to the next step.
+
+**Role 2 (or 3):**
+
+-   Change the label of the first code chunk
+-   Knit, commit, push. You should get an error.
+-   Pull. No merge conflicts should occur, but you should see a message about merging.
+-   Now push.
+
+🛑 Make sure the previous role has finished before moving on to the next step.
+
+**Role 1:**
+
+-   Change the label of the first code chunk to something other than previous role did.
+-   Knit, commit, push. You should get an error.
+-   Pull. Take a look at the document with the merge conflict. Clear the merge conflict by choosing the correct/preferred change. Commit, and push.
+
+🛑 Make sure the previous role has finished before moving on to the next step.
+
+**Everyone:** Pull, and observe the changes in your document.
+
+
+## Code chunk to change
+
+```{r echo=FALSE, message=FALSE, eval=TRUE, warning=FALSE}
+library(tidyverse)
+
+plastic_waste <- read_csv("https://raw.githubusercontent.com/rstudio-education/datascience-box/master/course-materials/lab-instructions/lab-02/data/plastic-waste.csv")
+
+plastic_waste %>% 
+  mutate(coastal_pop_prop = coastal_pop / total_pop) %>%
+  filter(plastic_waste_per_cap < 3) %>%
+  ggplot(aes(x = coastal_pop_prop, y = plastic_waste_per_cap, color = continent)) + 
+    geom_point() +
+    geom_smooth(color = "black") +
+    scale_color_viridis_d() +
+    labs(x = "Coastal population proportion (Coastal / total population)", 
+         y = "Plastic waste per capita ", 
+         color = "Continent",
+         title = "Plastic waste vs. coastal population proportion",
+         subtitle = "by continent") +
+    theme_minimal()
+```
+
+
+# Acknowledgement
+
+This instruction is adapted from materials provided by Adam Loy.
+

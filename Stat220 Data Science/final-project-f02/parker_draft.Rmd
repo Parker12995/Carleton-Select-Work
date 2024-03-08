@@ -1,0 +1,435 @@
+---
+title: "parker_draft.Rmd"
+author: "Parker Johnson"
+date: "3/13/2022"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(lubridate)
+library(rvest)
+library(babynames)
+library(titanic)
+library(stringr)
+library(polite)
+library(ggthemes)
+library(shiny)
+library(ggiraph)
+library(plotly)
+library(maps)
+library(leaflet)
+library(sp)
+library(maptools)
+```
+
+## Data Wrangling
+
+```{r}
+marchmadness_raw <- read.csv("NCAATourneyFullSeasonStats_13-19.csv")
+cbb_raw <- read.csv("cbb.csv")
+
+cbb_clean <- cbb_raw %>% #Cleaned data for most of the graphs
+  mutate(sweet_16 = ifelse(POSTSEASON %in% c("2ND", "Champions", "F4", "E8", 
+                                             "S16"), "yes", "no")) %>%
+  drop_na()
+
+cbb_clean_model <- cbb_raw %>% #Cleaned data to be used for the model
+  mutate(sweet_16 = ifelse(POSTSEASON %in% c("2ND", "Champions", "F4", "E8", 
+                                             "S16"), "yes", "no")) %>%
+  drop_na() %>%
+  mutate(sweet_16 = as.factor(sweet_16)) %>%
+  mutate(sweet_16 = fct_relevel(sweet_16, "yes", "no")) %>%
+  select(-CONF, -POSTSEASON)
+row.names(cbb_clean) <- str_c(cbb_clean$TEAM, cbb_clean$YEAR)
+cbb_clean_model <- cbb_clean_model %>%
+  select(-TEAM, -YEAR) #Non categorical/numerical columns had to be removed
+
+cbb22 <- read_csv("cbb22.csv")
+cbb22 <- cbb22 %>%
+  arrange(desc(.pred_yes)) %>%
+  mutate(row_num = seq.int(nrow(cbb22))) %>%
+  mutate(pred_sweet_16 = ifelse(row_num <= 16, "Yes", "No")) %>%
+  select(-c("prediction")) #Cleaned 2022 data
+
+cbb22_top16 <- cbb22 %>%
+  slice_max(order_by = .pred_yes, n = 16) #Predicted sweet 16 teams
+```
+
+
+## Creating the Prediction model
+
+```{r}
+set.seed(1234)
+cbb_split <- initial_split(cbb_clean_model, prop = 0.80, strata = sweet_16) #splitting dataset
+cbb_train <- cbb_split %>%
+  training()
+cbb_test <- cbb_split %>%
+  testing()
+fitted_logistic_model <- logistic_reg() %>% 
+  set_engine("glm") %>%
+  set_mode("classification") %>%
+  fit(sweet_16~., data = cbb_train)
+```
+
+
+## Shiny app
+
+```{r}
+ui <- fluidPage(tags$head(tags$style("label{font-family: Georgia;}")), 
+                theme = shinytheme("cyborg"),
+  navbarPage(
+             HTML('<a style="text-decoration:none;cursor:default;color:#FFFFFF;" 
+                  class="active" href="#">March Madness Data/Predictions</a>'), 
+             id="nav",
+             windowTitle = "March Madness Data and 2022 Predictions",
+#Style inspired by Edward Parker
+    
+    tabPanel("Information About the Data", #Informational tab
+              mainPanel(
+                textOutput("placeholder"))),
+    
+    
+    tabPanel("March Madness Trends", #Tab for the line and scatter plot
+             sidebarLayout(
+               sidebarPanel(
+                 varSelectInput(inputId = "yvariable", 
+                                label = "Y-axis variable:", 
+                                data = select(cbb_clean, ADJOE, ADJDE, BARTHAG, 
+                                              EFG_O, EFG_D, TOR, TORD, ORB, DRB, 
+                                              FTR, FTRD, X2P_O, X2P_D, X3P_O, 
+                                              X3P_D, ADJ_T, WAB)), 
+                 selectizeInput(inputId = "round",
+                         label = "Which rounds should show:",
+                         choices = cbb_clean$POSTSEASON,
+                         selected = cbb_clean$POSTSEASON[1],
+                         multiple = TRUE)),
+               
+             mainPanel(
+               tabsetPanel(
+                 tabPanel("Graphs", plotOutput("plot", height = 500), 
+                 girafeOutput("plot2", height = 500)), #Sub tab for plots
+              tabPanel("Datatable", dataTableOutput("table")))) #Sub tab for table
+    )),
+
+    tabPanel("Trends by Conference", #Tab for stacked bar graph
+             sidebarLayout(
+               sidebarPanel(
+                 sliderInput(inputId = "years", #Year slider
+                         label = "Select Years to Graph",
+                         min = min(cbb_clean$YEAR),
+                         max = max(cbb_clean$YEAR),
+                         value = c(min(cbb_clean$YEAR), max(cbb_clean$YEAR)))),
+             mainPanel(
+               girafeOutput("stackedplot", height = 500))
+    )), 
+
+    tabPanel("Predictions", #Prediction tab to show model accuracy and 2022 predictions
+             sidebarLayout(
+               sidebarPanel(
+                 selectInput(inputId = "year",
+                         label = "Which past year should show:",
+                         choices = c(2013, 2014, 2015, 2016, 2017, 2018, 2019),
+                         selected = 2019), 
+                 checkboxInput(inputId = "fullTable", label = "Show full 2022 table?", 
+                               value = FALSE)),
+             mainPanel(
+               tabsetPanel(
+                 tabPanel("Past Predictions", plotOutput("plotPast", height = 500), 
+                 dataTableOutput("tablePast")),
+              tabPanel("2022 Predictions", plotOutput("plot2022", height = 500),
+                       dataTableOutput("table2022"))))
+    ))
+ 
+))
+
+server <- function(input, output){
+  output$placeholder <- renderText("This is placeholder text.")
+  
+  output$plot <- renderPlot({
+    ggplot(cbb_clean, aes(x = YEAR, y = !!input$yvariable, col = sweet_16)) +
+      geom_smooth(se = TRUE) +
+      theme_economist() +
+      scale_color_economist() + 
+      theme(plot.title = element_text(hjust = 0.5)) + 
+      labs(col = "Sweet 16", title = str_c("Line plot for Teams by ", 
+                                           input$yvariable, " Over Time"))
+  }) #Line plot to show trends of a variable based on teams that made the sweet
+  #16 versus those that did not
+  
+  reactiveScatter <- reactive({ #Allows for the data to be reactive to input
+    cbb_clean %>% 
+       subset(POSTSEASON %in% input$round) %>%
+       group_by(TEAM) %>%
+       mutate(number_in_16 = length(POSTSEASON)) %>%
+      select(YEAR, TEAM, input$yvariable, POSTSEASON, CONF) %>%
+      mutate(tooltip = str_c(YEAR, "\n Team: ", TEAM, "\n Conference: ", 
+                             CONF, "\n Result: ", POSTSEASON))
+    #Tooltip will show inforamation when a point is hovered over
+ })
+  
+    reactiveTable <- reactive({ #Reactive table for the data
+    cbb_clean %>% 
+       subset(POSTSEASON %in% input$round) %>%
+       group_by(TEAM) %>%
+       mutate(number_in_16 = length(POSTSEASON)) %>%
+      select(YEAR, TEAM, input$yvariable, POSTSEASON, CONF)
+ })
+  
+  output$plot2 <- renderGirafe({ #Interactive scatter plot
+    abc<- ggplot(reactiveScatter(), aes(YEAR, reactiveScatter()[[input$yvariable]], 
+                                        color = TEAM)) +
+     #The y value is the value for the user inputted variable of interest
+    geom_point_interactive(tooltip = reactiveScatter()$tooltip,
+                           data_id = reactiveScatter()[[input$yvariable]],
+                           size = 1, 
+                           alpha = 0.8) + 
+     labs(x = "Year", y = input$yvariable, title = str_c("Value of ", 
+                                            input$yvariable, " Per Year by Team")) + 
+     theme(plot.title = element_text(hjust = 0.5), legend.position="none")
+
+  ggiraph(code = print(abc), option = list(
+    opts_hover(css = "fill:red;cursor:pointer;"), 
+    opts_selection(type = "single", css = "fill:red;")))
+  #Makes the point red when you hover over it
+  })
+  
+  output$table <- renderDataTable({
+    reactiveTable() }) #Rendering the reactive data table
+  
+ 
+   reactivePlot <-reactive({ #Reactive for hovering on the stacked bar graph
+   cbb_clean %>% 
+     subset(YEAR >= input$years[1] & YEAR <= input$years[2]) %>% 
+       filter(sweet_16 == "yes") %>%
+       group_by(CONF, YEAR) %>%
+       summarize(number_in_16 = length(POSTSEASON)) %>%
+     mutate(tooltip = str_c(YEAR, "\n Conference: ", CONF))
+ })
+   
+   
+  output$stackedplot <- renderGirafe({ #Interactive stacked bar graph
+    abc<- ggplot(reactivePlot(), aes(YEAR, number_in_16, fill = CONF)) +
+     #The x value is the value for the user inputted years of interest
+    geom_bar_interactive(position="stack", stat="identity",
+      tooltip = reactivePlot()$tooltip) + 
+     labs(x = "Year", y = "Number of Teams in the Sweet 16", title = 
+            "Teams in Sweet 16 by Year") + 
+     theme(plot.title = element_text(hjust = 0.5))
+
+  ggiraph(code = print(abc), option = list(
+    opts_hover(css = "fill:red;cursor:pointer;"), 
+    opts_selection(type = "single", css = "fill:red;")))
+  #Makes the point red when you hover over it
+  })
+  
+  
+  
+  output$plotPast <- renderPlot({
+    cbb_apply <- cbb_raw %>% #Filtering data
+      mutate(sweet_16 = ifelse(POSTSEASON %in% c("2ND", "Champions", "F4", "E8", 
+                                             "S16"), "yes", "no")) %>%
+      drop_na() %>%
+      mutate(sweet_16 = as.factor(sweet_16)) %>%
+      mutate(sweet_16 = fct_relevel(sweet_16, "yes", "no")) %>%
+      filter(YEAR == input$year) %>% #take in the input year
+      select(-CONF, -POSTSEASON, -YEAR)
+    apply_pred_prob <- predict(fitted_logistic_model, new_data = cbb_apply, 
+                        type = "prob") #Applying prediction model to our data
+    cbb_apply <- cbb_apply %>%
+      bind_cols(apply_pred_prob) #Binding the predictions to our data
+    cbb_apply <- cbb_apply %>%
+      slice_max(order_by = .pred_yes, n = 16)
+    #Only showing the predicted sweet 16 teams
+    
+    ggplot(cbb_apply, aes(TEAM, .pred_yes, fill = sweet_16)) +
+    geom_bar(stat="identity") +
+     labs(x = "Team", y = "Sweet 16 Prediction", title =
+            str_c("Teams Predicted to be in Sweet 16 in ", input$year)) +
+     theme(plot.title = element_text(hjust = 0.5)) +
+      theme(axis.text.x = element_text(angle = 45, vjust = 0.9, hjust=1))
+    #This plot shows the predicted teams for the given year, and if they actually
+    #made the sweet 16 or not
+  })
+  
+  output$tablePast <- renderDataTable({
+    cbb_apply <- cbb_raw %>% #Again filtering data
+      mutate(sweet_16 = ifelse(POSTSEASON %in% c("2ND", "Champions", "F4", "E8", 
+                                             "S16"), "yes", "no")) %>%
+      drop_na() %>%
+      mutate(sweet_16 = as.factor(sweet_16)) %>%
+      mutate(sweet_16 = fct_relevel(sweet_16, "yes", "no")) %>%
+      filter(YEAR == input$year) %>% #take in the input year
+      select(-CONF, -POSTSEASON, -YEAR)
+    apply_pred_prob <- predict(fitted_logistic_model, new_data = cbb_apply, 
+                          type = "prob") #Applying prediction model to our data
+    cbb_apply <- cbb_apply %>%
+      bind_cols(apply_pred_prob) #Binding the predictions to our data
+    cbb_apply <- cbb_apply %>%
+      slice_max(order_by = .pred_yes, n = 16)
+    cbb_apply #Outputting the predicted sweet 16 teams
+  })
+  
+  
+  output$plot2022 <- renderPlot({
+    ggplot(cbb22_top16, aes(TEAM, .pred_yes)) +
+    geom_bar(stat="identity") +
+     labs(x = "Team", y = "Sweet 16 Prediction", title =
+            "Teams Predicted to be in Sweet 16 in 2022") +
+     theme(plot.title = element_text(hjust = 0.5)) +
+      theme(axis.text.x = element_text(angle = 45, vjust = 0.9, hjust=1))
+  }) #This plot shows the predicted sweet 16 teams for 2022
+  
+  output$table2022 <- renderDataTable({
+    if (input$fullTable) {
+      cbb22 #Plots the full table for 2022
+    }
+    else {
+      cbb22_top16 #Plots the predicted sweet 16 teams for 2022
+    }
+    })
+}
+
+shinyApp(ui, server, options = list(height = 600))
+```
+
+## Messing around
+
+```{r}
+unique(cbb_clean$TEAM)
+#Could do something with selecting the top 2 teams per year, and plotting their stats?
+
+unique(cbb_clean$CONF)
+#Could do plots by conference
+
+cbb_conferences <- cbb_clean %>% #Conferences with teams in the sweet 16
+  filter(sweet_16 == "yes") %>%
+  group_by(CONF, YEAR) %>%
+  #group_by(YEAR) %>%
+  summarize(number_in_16 = length(POSTSEASON))
+
+ggplot(cbb_conferences, aes(x = YEAR, y = number_in_16, fill = CONF)) + 
+  geom_bar(position="stack", stat="identity")
+
+    
+    cbb_clean %>% 
+     #subset(YEAR >= input$years[1] & YEAR <= input$years[2]) %>% 
+       filter(sweet_16 == "yes") %>%
+       group_by(TEAM) %>%
+       mutate(number_in_16 = length(POSTSEASON)) %>%
+      subset(number_in_16 == max(number_in_16) | number_in_16 == max(number_in_16) - 1)
+      #top_n(number_in_16, 1)
+      #if(max(cbb_clean$number_in_16) <= 2) {
+      #  subset(cbb_clean$number_in_16 == max(cbb_clean$number_in_16))
+      #}
+      #else {
+      #subset(cbb_clean$number_in_16 == max(cbb_clean$number_in_16) | cbb_clean$number_in_16 == max(cbb_clean$number_in_16) - 1)
+    #}
+```
+
+
+## Don't run this, just for reference
+
+```{r}
+    tabPanel("COVID-19 Trends", #Tab for the plot and table
+             sidebarLayout(
+               sidebarPanel(
+                 textOutput(outputId = "text3"),
+                 selectInput(inputId = "cumulative", #Variables
+                             label = "Variable to Plot:",
+                             choices = colnames(line_final[3:5])
+                             ),
+                 selectizeInput(inputId = "countries", #Countries
+                         label = "Country Name",
+                         choices = line_final$country,
+                         selected = line_final$country[1],
+                         multiple = TRUE),
+                  sliderInput(inputId = "year", #Date slider
+                         label = "Select Years to Graph",
+                         min = min(cbb_clean$YEAR),
+                         max = max(cbb_clean$YEAR),
+                         value = c(min(cbb_clean$YEAR), max(cbb_clean$YEAR)))
+               ),
+             mainPanel(
+               tabsetPanel(
+                 tabPanel("Lineplot", girafeOutput("lineplot")), #Sub tab for plot
+                 tabPanel("Datatable", dataTableOutput("table")))) #For table
+    )
+ 
+)
+
+
+
+ line_2<-reactive({
+   line_final %>% 
+     subset(date >= input$day[1] & date <= input$day[2]) %>% 
+     subset(country %in% input$countries) %>% 
+     mutate(tooltip = str_c(date, "\n Country: ", country, 
+                            "\n Case of Interest: ", input$cumulative))
+ })
+ 
+  table_2 <- reactive({
+   line_final %>% 
+     subset(date >= input$day[1] & date <= input$day[2]) %>% 
+     subset(country %in% input$countries)
+ })
+ 
+  #Rendering the scatterplot
+  output$lineplot<-renderGirafe({
+   abc<- ggplot(line_2(), aes(date, line_2()[[input$cumulative]], color = country)) +
+     #The y value is the value for the user inputted case of interest
+    geom_point_interactive(tooltip = line_2()$tooltip,
+                           data_id = line_2()[[input$cumulative]],
+                           size = 1, 
+                           alpha = 0.8) + #Shows more information when you hover
+                                          #over a point
+     labs(y = "Cumulative cases", x = "Date", title = str_c("Cumulative ", 
+                                            input$cumulative, " Over Time")) + 
+     theme(plot.title = element_text(hjust = 0.5)) + 
+     theme_linedraw() #Makes the plot more clean looking
+  ggiraph(code = print(abc), option = list(
+    opts_hover(css = "fill:red;cursor:pointer;"), 
+    opts_selection(type = "single", css = "fill:red;")))
+  #Makes the point red when you hover over it
+ }) 
+  
+  output$table <- renderDataTable({
+    table_2() })
+```
+
+
+## Visualization
+
+```{r}
+# Time series plot template for different variables available
+ggplot(cbb_clean, aes(x = YEAR, y = X2P_O, col = sweet_16)) +
+  geom_smooth(se = TRUE) +
+  theme_economist() +
+  scale_color_economist()
+
+# Interactive Shiny Version
+ui <- fluidPage(
+  plotOutput("plot", height = 500),
+    varSelectInput(inputId = "yvariable", 
+              label = "Y-axis variable:", 
+              data = select(cbb_clean, ADJOE, ADJDE, BARTHAG, EFG_O, EFG_D, 
+                            TOR, TORD, ORB, DRB, FTR, FTRD, X2P_O, X2P_D, 
+                            X3P_O, X3P_D, ADJ_T, WAB))
+)
+
+
+
+
+server <- function(input, output){
+  output$plot <- renderPlot({
+    ggplot(cbb_clean, aes(x = YEAR, y = !!input$yvariable, col = sweet_16)) +
+      geom_smooth(se = TRUE) +
+      theme_economist() +
+      scale_color_economist()
+  })
+}
+
+shinyApp(ui, server, options = list(height = 600))
+```
+

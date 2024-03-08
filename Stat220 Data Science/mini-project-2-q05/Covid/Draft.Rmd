@@ -1,0 +1,174 @@
+---
+title: "Draft"
+author: "Eway Cai"
+date: "2/27/2022"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(shiny)
+library(readr)
+library(janitor)
+library(purrr)
+library(lubridate)
+library(plotly)
+library(sp)
+library(ggthemes)
+library(coronavirus)
+library(dplyr)
+library(maps)
+library(maptools)
+library(rvest)
+library(polite)
+library(stringr)
+library(viridis)
+library(ggiraph)
+library(RColorBrewer)
+library(leaflet)
+library(tidyr)
+library(rnaturalearth)
+library(sf)
+```
+
+```{r}
+covid_clean <- coronavirus %>%
+  group_by(country) %>%
+  mutate(province = replace_na(province, "mainland")) %>%
+  filter(province == "mainland") %>%
+  mutate(cases = abs(cases)) %>%  # Turning negative recovery values positive so we can subtract
+  arrange(date) %>%
+  pivot_wider(names_from = "type",
+              values_from = "cases") %>% # Make case type a variable
+  mutate(
+    cumulativeCase = cumsum(confirmed),
+    cumulativeDeath = cumsum(death)) %>% 
+  select(
+    -c(
+      province,
+      uid,
+      iso2,
+      code3,
+      combined_key,
+      continent_code
+    )
+  )
+
+vac<-covid19_vaccine %>% 
+  arrange(date) %>% 
+  select(
+    -c(
+      "uid", "iso2", "iso3", "code3", "continent_name", 
+            "continent_code", "combined_key", "fips", "report_date_string"
+    )) %>% 
+  filter(!(country_region == "World")) %>% 
+  rename(country = "country_region")
+      
+joined_covid<-left_join(vac,covid_clean, "country" = "country", "date" = "date")
+
+
+  
+final<-joined_covid %>% 
+  filter(country %in% str_to_title(c("afghanistan", 
+                                     "cambodia", 
+                                     "thailand", 
+                                     "laos", 
+                                     "vietnam", 
+                                     "bangladesh", 
+                                     "nepal",
+                                     "myanmar", 
+                                     "malaysia", 
+                                     "philippines", 
+                                     "indonesia", 
+                                     "pakistan"))) %>% 
+  group_by(country) %>% 
+  select(lat, long, cumulativeCase,cumulativeDeath, people_fully_vaccinated) %>% 
+  summarize("Total Cases" = max(cumulativeCase, na.rm = TRUE),
+            "Total Death Cases" = max(cumulativeDeath, na.rm = TRUE),
+            "Total Vaccinated Cases" = max(people_fully_vaccinated, na.rm = TRUE), 
+            lat = max(lat), 
+            long = max(long))
+
+
+line_final<-joined_covid %>% 
+    filter(country %in% str_to_title(c("afghanistan", 
+                                       "cambodia", 
+                                       "thailand", 
+                                       "laos", 
+                                       "vietnam", 
+                                       "bangladesh", 
+                                       "nepal",
+                                       "myanmar", 
+                                       "malaysia", 
+                                       "philippines", 
+                                       "indonesia", 
+                                       "pakistan"))) %>% 
+    group_by(country, date) %>% 
+    rename("Vaccination Population" = people_fully_vaccinated,
+           "Total Cases" = cumulativeCase,
+           "Death Cases" = cumulativeDeath) %>% 
+    select(
+      c(`Vaccination Population`, `Total Cases`, `Death Cases`)
+    )
+```
+
+
+```{r}
+#Line Plots
+#Case total
+ggplot(line_final, mapping = aes(date, cumulativeCase, color = country)) +
+  geom_point( size = 1, alpha = 0.8) 
+
+#Death
+ggplot(line_final, mapping = aes(date, cumulativeDeath, color = country)) +
+  geom_point(size = 1, alpha = 0.8)
+ 
+```
+
+
+
+```{r}
+# Map
+map1<-map("world", regions = c( "afghanistan",
+                                "cambodia", 
+                                "thailand", 
+                                "laos", 
+                                "vietnam", 
+                                "bangladesh", 
+                                "nepal",
+                                "malaysia", 
+                                "philippines", 
+                                "indonesia", 
+                                "pakistan"), 
+          plot = FALSE, fill = TRUE)
+
+reg<-"(?=:).+"
+map1$names<-str_remove(map1$names, reg)
+Regionmap <- map2SpatialPolygons(map1, IDs = map1$names)
+
+map <- SpatialPolygonsDataFrame(Regionmap, final, match.ID = FALSE)
+
+bins <- seq(0, max(map$totalCase), length.out = 7)
+pal <- colorBin("viridis", domain = map$totalCase, bins = bins)
+
+labels <- sprintf("<strong> %s </strong> <br/> Observed: %s", 
+                  str_to_upper(map$country), map$totalCase) %>%
+  lapply(htmltools::HTML)
+
+l <- leaflet(map) %>% 
+  addTiles() 
+  #%>% 
+  # setView(-96, 37.8, 4) 
+
+n <- l %>% 
+  addPolygons(color = "grey", weight = 1,
+                  fillColor = ~pal(totalCase), fillOpacity = 0.7,
+                  highlightOptions = highlightOptions(weight = 5),
+                  label = labels) %>%
+                  addLegend(pal = pal, values = ~totalCase, opacity = 0.5, 
+                            title = "Cumulative Cases", 
+                            position = "bottomright")
+
+n
+```
+

@@ -1,0 +1,505 @@
+---
+title: "Homework 6"
+output: html_document
+runtime: shiny
+---
+
+## Name: AJ Staff
+
+## I worked with: 
+
+**Click the "Knit" button in RStudio to knit this file to a pdf.**
+
+--------------------------------------------
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, collapse = TRUE, 
+                      warning = FALSE, message = FALSE)
+
+library(tidyverse)
+library(lubridate)
+library(rvest)
+library(babynames)
+library(titanic)
+library(stringr)
+library(polite)
+library(ggthemes)
+library(shiny)
+library(ggiraph)
+library(plotly)
+library(maps)
+library(leaflet)
+library(sp)
+library(maptools)
+```
+
+## Data Wrangling
+
+```{r}
+marchmadness_raw <- read.csv("~/stat220/final-project-f02/NCAATourneyFullSeasonStats_13-19.csv")
+cbb_raw <- read.csv("~/stat220/final-project-f02/cbb.csv")
+
+cbb_clean <- cbb_raw %>%
+  mutate(sweet_16 = ifelse(POSTSEASON %in% c("2ND", "Champions", "F4", "E8", "S16"), "yes", "no")) %>%
+  drop_na()
+```
+
+## Time-series Graphs
+
+```{r}
+# Time series plot template for different variables available
+ggplot(cbb_clean, aes(x = YEAR, y = X2P_O, col = sweet_16)) +
+  geom_smooth(se = TRUE) +
+  theme_economist() +
+  scale_color_economist()
+
+# Interactive Shiny Version
+ui <- fluidPage(
+  plotOutput("plot", height = 500),
+    varSelectInput(inputId = "yvariable", 
+              label = "Y-axis variable:", 
+              data = select(cbb_clean, ADJOE, ADJDE, BARTHAG, EFG_O, EFG_D, 
+                            TOR, TORD, ORB, DRB, FTR, FTRD, X2P_O, X2P_D, 
+                            X3P_O, X3P_D, ADJ_T, WAB))
+)
+
+server <- function(input, output){
+  output$plot <- renderPlot({
+    ggplot(cbb_clean, aes(x = YEAR, y = !!input$yvariable, col = sweet_16)) +
+      geom_smooth(se = TRUE) +
+      theme_economist() +
+      scale_color_economist()
+  })
+}
+
+shinyApp(ui, server, options = list(height = 600))
+```
+
+
+## Categorical Graphics
+
+```{r}
+# First try.
+
+cbb_reactive_example <- cbb_clean %>%
+  filter(CONF == "B10")
+
+cbb_2016 <- cbb_clean %>% filter(YEAR == 2016)
+
+cbb_conference <- cbb_clean %>%
+  group_by(CONF, YEAR) %>%
+  mutate(n_conf = n()) %>%
+  mutate(n_sweet_16 = sum(sweet_16 == "yes")) %>%
+  mutate(conf_sweet_16_prop = 100 * round((n_sweet_16/n_conf), 3)) %>%
+  filter(n_conf >= 3)
+
+ggplot(cbb_conference, aes(x = YEAR, y = conf_sweet_16_prop, col = CONF)) +
+  geom_smooth()
+
+ggplot(cbb_conference, aes(x = POSTSEASON, fill = POSTSEASON)) +
+  geom_bar()
+
+ggplot(cbb_clean, aes(x = POSTSEASON, fill = POSTSEASON)) +
+  geom_bar()
+```
+
+
+
+
+## Parker Shiny Code
+
+
+```{r}
+ui <- fluidPage(tags$head(tags$style("label{font-family: Georgia;}")), 
+                theme = shinytheme("cyborg"),
+  navbarPage(
+             HTML('<a style="text-decoration:none;cursor:default;color:#FFFFFF;" 
+                  class="active" href="#">March Madness Data/Predictions</a>'), 
+             id="nav",
+             windowTitle = "March Madness Data and 2022 Predictions",
+#Style inspired by Edward Parker
+    
+    tabPanel("Information About the Data",
+              mainPanel(
+                textOutput("placeholder"))),
+    
+    
+    tabPanel("March Madness Trends",
+             sidebarLayout(
+               sidebarPanel(
+                 varSelectInput(inputId = "yvariable", 
+                                label = "Y-axis variable:", 
+                                data = select(cbb_clean, ADJOE, ADJDE, BARTHAG, 
+                                              EFG_O, EFG_D, TOR, TORD, ORB, DRB, 
+                                              FTR, FTRD, X2P_O, X2P_D, X3P_O, 
+                                              X3P_D, ADJ_T, WAB)), 
+                 selectizeInput(inputId = "round",
+                         label = "Which rounds should show:",
+                         choices = cbb_clean$POSTSEASON,
+                         selected = cbb_clean$POSTSEASON[1],
+                         multiple = TRUE)),
+               
+             mainPanel(
+               tabsetPanel(
+                 tabPanel("Graphs", plotOutput("plot", height = 500), 
+                 girafeOutput("plot2", height = 500)),
+              tabPanel("Datatable", dataTableOutput("table"))))
+    )),
+
+    tabPanel("More March Madness Trends",
+             sidebarLayout(
+               sidebarPanel(
+                 sliderInput(inputId = "years", #Year slider
+                         label = "Select Years to Graph",
+                         min = min(cbb_clean$YEAR),
+                         max = max(cbb_clean$YEAR),
+                         value = c(min(cbb_clean$YEAR), max(cbb_clean$YEAR)),
+                         step = 1)),
+             mainPanel(
+               girafeOutput("stackedplot", height = 500))
+    ))
+ 
+))
+
+server <- function(input, output){
+  output$placeholder <- renderText("This is placeholder text.")
+  
+  output$plot <- renderPlot({
+    ggplot(cbb_clean, aes(x = YEAR, y = !!input$yvariable, col = sweet_16)) +
+      geom_smooth(se = TRUE) +
+      theme_economist() +
+      scale_color_economist()
+  })
+  
+  reactiveScatter <- reactive({
+    cbb_clean %>% 
+      #subset(YEAR >= input$years[1] & YEAR <= input$years[2]) %>%
+       subset(POSTSEASON %in% input$round) %>%
+       group_by(TEAM) %>%
+       mutate(number_in_16 = length(POSTSEASON)) %>%
+      select(YEAR, TEAM, input$yvariable, POSTSEASON, CONF) %>%
+      mutate(tooltip = str_c(YEAR, "\n Team: ", TEAM, "\n Conference: ", 
+                             CONF, "\n Result: ", POSTSEASON))
+ })
+  
+    reactiveTable <- reactive({
+    cbb_clean %>% 
+      #subset(YEAR >= input$years[1] & YEAR <= input$years[2]) %>%
+       subset(POSTSEASON %in% input$round) %>%
+       group_by(TEAM) %>%
+       mutate(number_in_16 = length(POSTSEASON)) %>%
+      select(YEAR, TEAM, input$yvariable, POSTSEASON, CONF)
+ })
+  
+  output$plot2 <- renderGirafe({
+    abc<- ggplot(reactiveScatter(), aes(YEAR, reactiveScatter()[[input$yvariable]], 
+                                        color = TEAM)) +
+     #The x value is the value for the user inputted years of interest
+    geom_point_interactive(tooltip = reactiveScatter()$tooltip,
+                           data_id = reactiveScatter()[[input$yvariable]],
+                           size = 1, 
+                           alpha = 0.8) + 
+     labs(x = "Year", y = input$yvariable, title = str_c("Value of ", 
+                                            input$yvariable, " Per Year by Team")) + 
+     theme(plot.title = element_text(hjust = 0.5), legend.position="none")
+
+  ggiraph(code = print(abc), option = list(
+    opts_hover(css = "fill:red;cursor:pointer;"), 
+    opts_selection(type = "single", css = "fill:red;")))
+  #Makes the point red when you hover over it
+  })
+  
+  output$table <- renderDataTable({
+    reactiveTable() })
+  
+ 
+   reactivePlot <-reactive({
+   cbb_clean %>% 
+     subset(YEAR >= input$years[1] & YEAR <= input$years[2]) %>% 
+       filter(sweet_16 == "yes") %>%
+       group_by(CONF, YEAR) %>%
+       summarize(number_in_16 = length(POSTSEASON)) %>%
+     mutate(tooltip = str_c(YEAR, "\n Conference: ", CONF))
+    #   summarize(number_in_16 = unique(number_in_16), tooltip)
+ })
+  
+   #cbb_clean %>%
+  #   filter(sweet_16 == "yes") %>%
+  #     group_by(CONF, YEAR) %>%
+  #     mutate(number_in_16 = length(POSTSEASON)) %>%
+  #   summarize(number_in_16 = unique(number_in_16))
+   
+   
+  output$stackedplot <- renderGirafe({
+    abc<- ggplot(reactivePlot(), aes(YEAR, number_in_16, fill = CONF)) +
+     #The x value is the value for the user inputted years of interest
+    geom_bar_interactive(position="stack", stat="identity",
+      tooltip = reactivePlot()$tooltip) + 
+     labs(x = "Year", y = "Number of Teams in the Sweet 16", title = 
+            "Teams in Sweet 16 by Year") + 
+     theme(plot.title = element_text(hjust = 0.5))
+
+  ggiraph(code = print(abc), option = list(
+    opts_hover(css = "fill:red;cursor:pointer;"), 
+    opts_selection(type = "single", css = "fill:red;")))
+  #Makes the point red when you hover over it
+  })
+  
+}
+
+shinyApp(ui, server, options = list(height = 600))
+```
+
+
+
+##########################
+
+cbb_raw <- read.csv("cbb.csv")
+
+cbb_clean <- cbb_raw %>%
+  mutate(sweet_16 = ifelse(POSTSEASON %in% c("2ND", "Champions", "F4", 
+                                             "E8", "S16"), "yes", "no")) %>%
+  drop_na()
+
+ui <- fluidPage(tags$head(tags$style("label{font-family: Georgia;}")), 
+                theme = shinytheme("cyborg"),
+                navbarPage(
+                  HTML('<a style="text-decoration:none;cursor:default;color:#FFFFFF;" 
+                  class="active" href="#">March Madness Data/Predictions</a>'), 
+                  id="nav",
+                  windowTitle = "March Madness Data and 2022 Predictions",
+                  #Style inspired by Edward Parker
+                  
+                  tabPanel("Information About the Data",
+                           mainPanel(
+                             p(strong("bold")),
+                             p("Every year 64 division 1 college basketball teams convene in a massive tournament 
+                             to decide who wins the National Championship. There is only one winner, and although 
+                             there are always 'favorites' going in, upsets are inevitable, which is where the 
+                             name March Madness comes from!"),
+                             br(),
+                             p("As with many sports, excited fans love to wager their bets on who will win, not 
+                             only the entire tournament but the outcomes of each game. There is even a field
+                             of study known as 'bracketology' where ambitious people put all of their brains
+                             together to try and decide what the exact outcome of any given year's tournament
+                             will be. Of course, history has shown us that the odds of predicting the outcome
+                             of 32 games correctly is zero. Part of the problem arises from the fact that there
+                             are a ridiculous amount of variables at play, and the caliber of the best teams 
+                             are so similar that an accurate prediction by the end of the tournament becomes
+                             almost impossible."),
+                             br(),
+                             p("One funny example of how ridiculous march maddness predictions really are, is that
+                             of billionaire, Warren Buffett's challenge to general public in 2014. He said he
+                             would pay anyone one billion dollars if they correctly predicited a 'perfect' bracket,
+                             meaning all 32 games correct. Since then, he has offered employees at his company,
+                             Berkshire Hathaway, a million dollars every year for life if they accuarately predict
+                             the first two rounds of the tournament. Seemingly a much simpler task, right?"),
+                             br(),
+                             p("Well, we have decided to give it our best shot, but with a little more challenge
+                             to it, with trying to create an informed logistic model which can predict whether
+                             or not certain teams make it to the third round, also known as the 'Sweet 16', because
+                             it is when there are 16 teams left."),
+                             br(),
+                             p("The dataset we are using is a comprehensive set of team-by-team metrics for all of
+                             division 1 basketball, from 2013 through present day. We found access to this data
+                             from a user named Andrew Sundberg on Kaggle. We were able to code in a cateogrical
+                             variable which would indicate whether or not a team made it to the Sweet 16, and
+                             otherwise all the data we needed was there to inform our categorical predicited
+                             variable.")
+                             )
+                           ),
+                  
+                  tabPanel("March Madness Trends",
+                           sidebarLayout(
+                             sidebarPanel(
+                               varSelectInput(inputId = "yvariable", 
+                                              label = "Y-axis variable:", 
+                                              data = select(cbb_clean, ADJOE, ADJDE, BARTHAG, 
+                                                            EFG_O, EFG_D, TOR, TORD, ORB, DRB, 
+                                                            FTR, FTRD, X2P_O, X2P_D, X3P_O, 
+                                                            X3P_D, ADJ_T, WAB)), 
+                               selectizeInput(inputId = "round",
+                                              label = "Which rounds should show:",
+                                              choices = cbb_clean$POSTSEASON,
+                                              selected = cbb_clean$POSTSEASON[1],
+                                              multiple = TRUE)),
+                             
+                             mainPanel(
+                               tabsetPanel(
+                                 tabPanel("Graphs", plotOutput("plot", height = 500, width = "100%"), 
+                                          br(),
+                                          br(),
+                                          girafeOutput("plot2", height = 500, width = "100%")),
+                                 tabPanel("Datatable", dataTableOutput("table"))))
+                           )),
+                  
+                  tabPanel("More March Madness Trends",
+                           sidebarLayout(
+                             sidebarPanel(
+                               sliderInput(inputId = "years", #Year slider
+                                           label = "Select Years to Graph",
+                                           min = min(cbb_clean$YEAR),
+                                           max = max(cbb_clean$YEAR),
+                                           value = c(min(cbb_clean$YEAR), max(cbb_clean$YEAR)))),
+                             mainPanel(
+                               girafeOutput("stackedplot", height = 500))
+                           )),
+                  tags$head(tags$style("#placeholder{
+                  font-size: 20px;
+                  font-style: italic;
+                                       }"
+                                       )
+                            )
+                ))
+
+server <- function(input, output){
+  output$placeholder <- renderText({
+    paste(
+  "Every year 64 division 1 college basketball teams convene in a massive tournament 
+  to decide who wins the National Championship. There is only one winner, and although 
+  there are always 'favorites' going in, upsets are inevitable, which is where the 
+  name March Madness comes from!",
+  
+  "As with many sports, excited fans love to wager their bets on who will win, not 
+  only the entire tournament but the outcomes of each game. There is even a field
+  of study known as 'bracketology' where ambitious people put all of their brains
+  together to try and decide what the exact outcome of any given year's tournament
+  will be. Of course, history has shown us that the odds of predicting the outcome
+  of 32 games correctly is zero. Part of the problem arises from the fact that there
+  are a ridiculous amount of variables at play, and the caliber of the best teams 
+  are so similar that an accurate prediction by the end of the tournament becomes
+  almost impossible.",
+  
+  "CITE SOURCE: https://www.sportingnews.com/us/ncaa-basketball/news/perfect-march-madness-bracket-odds-why-its-nearly-impossible-pick-all-63-ncaa-tournament-games-correctly/yazqr95bndqb52uzo52tdngc",
+  
+  "One funny example of how ridiculous march maddness predictions really are, is that
+  of billionaire, Warren Buffett's challenge to general public in 2014. He said he
+  would pay anyone one billion dollars if they correctly predicited a 'perfect' bracket,
+  meaning all 32 games correct. Since then, he has offered employees at his company,
+  Berkshire Hathaway, a million dollars every year for life if they accuarately predict
+  the first two rounds of the tournament. Seemingly a much simpler task, right?",
+  
+  "Well, we have decided to give it our best shot, but with a little more challenge
+  to it, with trying to create an informed logistic model which can predict whether
+  or not certain teams make it to the third round, also known as the 'Sweet 16', because
+  it is when there are 16 teams left.",
+  
+  "The dataset we are using is a comprehensive set of team-by-team metrics for all of
+  division 1 basketball, from 2013 through present day. We found access to this data
+  from a user named Andrew Sundberg on Kaggle. We were able to code in a cateogrical
+  variable which would indicate whether or not a team made it to the Sweet 16, and
+  otherwise all the data we needed was there to inform our categorical predicited
+  variable.",
+  
+  "Some of the metrics, are not commonly known, such as:
+  
+  ADJOE: Adjusted Offensive Efficiency (An estimate of the offensive efficiency (points scored per 100 possessions) a team would have against the average Division I defense)
+  ADJDE: Adjusted Defensive Efficiency (An estimate of the defensive efficiency (points allowed per 100 possessions) a team would have against the average Division I offense)
+  BARTHAG: Power Rating (Chance of beating an average Division I team)
+  EFG_O: Effective Field Goal Percentage Shot
+  EFG_D: Effective Field Goal Percentage Allowed
+  
+  Most of the other metrics used to create our model are common statistics associated
+  with basketball.",
+    
+  sep = "\n"
+    )
+    })
+  
+  output$plot <- renderPlot({
+    ggplot(cbb_clean, aes(x = YEAR, y = !!input$yvariable, col = sweet_16)) +
+      geom_smooth(se = TRUE) +
+      labs(x = "Year", 
+           y = input$yvariable, 
+           title = str_c("Value of ", input$yvariable, " Per Year by Team")) +      
+      theme_economist() +
+      scale_color_economist()
+  })
+  
+  reactiveScatter <- reactive({
+    cbb_clean %>% 
+      #subset(YEAR >= input$years[1] & YEAR <= input$years[2]) %>%
+      subset(POSTSEASON %in% input$round) %>%
+      group_by(TEAM) %>%
+      mutate(number_in_16 = length(POSTSEASON)) %>%
+      select(YEAR, TEAM, input$yvariable, POSTSEASON, CONF) %>%
+      mutate(tooltip = str_c(YEAR, "\n Team: ", TEAM, "\n Conference: ", 
+                             CONF, "\n Result: ", POSTSEASON))
+  })
+  
+  reactiveTable <- reactive({
+    cbb_clean %>% 
+      #subset(YEAR >= input$years[1] & YEAR <= input$years[2]) %>%
+      subset(POSTSEASON %in% input$round) %>%
+      group_by(TEAM) %>%
+      mutate(number_in_16 = length(POSTSEASON)) %>%
+      select(YEAR, TEAM, input$yvariable, POSTSEASON, CONF)
+  })
+  
+  output$plot2 <- renderGirafe({
+    abc<- ggplot(reactiveScatter(), aes(YEAR, reactiveScatter()[[input$yvariable]], 
+                                        color = TEAM)) +
+      #The x value is the value for the user inputted years of interest
+      geom_point_interactive(tooltip = reactiveScatter()$tooltip,
+                             data_id = reactiveScatter()[[input$yvariable]],
+                             size = 1, 
+                             alpha = 0.8) + 
+      labs(x = "Year", y = input$yvariable, title = str_c("Value of ", 
+                                                          input$yvariable, " Per Year by Team")) +
+      theme_economist() +
+      scale_color_economist() +
+      theme(legend.position = "none")
+    
+    ggiraph(code = print(abc), option = list(
+      opts_hover(css = "fill:red;cursor:pointer;"), 
+      opts_selection(type = "single", css = "fill:red;")))
+    #Makes the point red when you hover over it
+  })
+  
+  output$table <- renderDataTable({
+    reactiveTable() })
+  
+  
+  reactivePlot <-reactive({
+    cbb_clean %>% 
+      subset(YEAR >= input$years[1] & YEAR <= input$years[2]) %>% 
+      filter(sweet_16 == "yes") %>%
+      group_by(CONF, YEAR) %>%
+      summarize(number_in_16 = length(POSTSEASON)) %>%
+      mutate(tooltip = str_c(YEAR, "\n Conference: ", CONF))
+    #   summarize(number_in_16 = unique(number_in_16), tooltip)
+  })
+  
+  #cbb_clean %>%
+  #   filter(sweet_16 == "yes") %>%
+  #     group_by(CONF, YEAR) %>%
+  #     mutate(number_in_16 = length(POSTSEASON)) %>%
+  #   summarize(number_in_16 = unique(number_in_16))
+  
+  
+  output$stackedplot <- renderGirafe({
+    abc<- ggplot(reactivePlot(), aes(YEAR, number_in_16, fill = CONF)) +
+      #The x value is the value for the user inputted years of interest
+      geom_bar_interactive(position="stack", stat="identity",
+                           tooltip = reactivePlot()$tooltip) + 
+      labs(x = "Year", y = "Number of Teams in the Sweet 16", title = 
+             "Teams in Sweet 16 by Year") + 
+      theme(plot.title = element_text(hjust = 0.5))
+    
+    ggiraph(code = print(abc), option = list(
+      opts_hover(css = "fill:red;cursor:pointer;"), 
+      opts_selection(type = "single", css = "fill:red;")))
+    #Makes the point red when you hover over it
+  })
+  
+}
+
+app1 <- shinyApp(ui = ui, server = server)
+app1
+
+
+##################
+
+
+
+

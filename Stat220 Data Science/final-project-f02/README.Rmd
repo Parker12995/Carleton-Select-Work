@@ -1,0 +1,60 @@
+---
+title: "Final Project Write Up"
+author: "Your group name"
+date: "`r format(Sys.Date(), ' %B %d %Y')`"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(collapse=TRUE, warning = FALSE, 
+                      message=FALSE, include=TRUE, 
+                      fig.height = 4, fig.width = 5)
+```
+
+
+## URL for webpage/shiny app
+
+https://ajstaff.shinyapps.io/final_app/
+
+## Panopto/Screencast link
+
+https://carleton.hosted.panopto.com/Panopto/Pages/Viewer.aspx?id=45f93892-d8be-44a6-bb01-ae5a000f9052
+
+## List of files in the repository
+
+ - cbb.csv
+    - data file of statistics on all tournament teams from 2013-2019
+ - cbb22.csv
+    - data file of statistics from the 2021-2022 season
+ - garrett_draft.Rmd
+    - file where web scraping and model creation was done
+ - final_app/app.R
+    - shiny app file
+
+## Brief technical report
+
+### Model Creation and Application
+ 
+ - Initial data wrangling involved reading file from .csv and adding a column based on whether a team went to the Sweet Sixteen that year, coded as a factor with two levels
+    - This initial data is found in the file "cbb.csv"
+ - Removed columns that would not be used in the logistic regression model (Conf, Postseason, Team, and Year)
+ - Split data into 80% training and 20% testing, using the set seed of 1234
+ - Fit logistic regression model to the training data
+ - Tested model on the testing data by creating a confusion matrix and double density plot
+    - Metrics: Accuracy = 0.9375, specificity = 0.945, sensitivity = 0.913
+ - Applied the model to the 2019 tournament and it predicted 14 of the 16 teams correctly
+ - Web scraping the data from this years tournament required a lot of steps:
+    - Web scrape the stats for each of the tournament teams from barttorvik.com
+    - Each entry had unwanted digits concatenated to the end of the number, and could not isolate the correct number using CSS selectors
+    - Web scraped just the unwanted numbers from barttorvik.com using the CSS selector for .lowrow
+    - Wrote function to go through each datapoint and remove the unwanted numbers from the end of each entry
+    - Cleaned up data to include the same data and variable names that were used to make the logistic regression model
+ - Applied the logistic regression model to the data from this year
+    - Saved this file as "cbb22.csv"
+ - Sorted the data to find the 16 teams most likely to be in the Sweet Sixteen according to this model
+ - The teams are: Iowa, Duke, Purdue, Virginia Tech, Kansas, Arizona, Alabama, Michigan State, Richmond, Arkansas, North Carolina, Houston, Texas Tech, Villanova, Creighton, and Saint Marys
+ - The stacked bar graph shows trends in data for each conference, with interactivity added with the tooltip tool to show information when hovering over an area of the graph
+ - The line graph was chosen to show differences in measurements of a team between those who made the sweet 16 and those who did not across years.
+ - The scatterplot was included to be an extension from the line graph. Interactivity was added with the selectizeInput function to allow the user to choose which teams to show based on when they were eliminated, and which variable to explore.
+ - The prediction tab does not use interactive graphs, because the graphs already show what the user wants to know with what teams our model predicted to make the sweet 16. The data table for past years updates based on the user selected year, and the 2022 data table can switch between showing the predicted top 16 teams and all of the data.
+ - The prediction and first trends tab were separated into tabs to split similar data into cleaner, easier to understand screens.
