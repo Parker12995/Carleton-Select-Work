@@ -1,0 +1,205 @@
+```{r}
+library(dplyr)
+library(sf)
+library(ggplot2)
+library(ggmap)
+library(MASS)
+library(fields)
+library(tidyverse)
+library(sp)
+library(tigris)
+library(ggmap)
+library(tidycensus)
+library(maditr)
+library(spdep)
+library(spatialreg)
+library(gridExtra)
+library(sf)
+library(spatstat)
+```
+
+```{r}
+# grab the minn map and ward shape files for sanity check plots
+minn_map <- ggmap(get_map(c(left = -93.35, bottom = 44.88, 
+                            right = -93.18, top = 45.06), source = "stamen"))
+minn_wards <- st_read("../../data/original/City_Council_Wards/WARDS.shp") %>%
+  as_Spatial()
+wards_fortify <- broom::tidy(minn_wards)
+minn_wards$id <- row.names(minn_wards)
+wards_fortify <- left_join(wards_fortify, minn_wards@data)
+```
+
+## Generate integration points and overlay (seeded)
+
+```{r}
+multiplier <- 30
+```
+
+```{r}
+load("../../data/working/Census_Tracts_Data.Rdata")
+use_of_force_data <- read.csv("../../data/original/Police_Use_of_Force.csv")
+uof_suspicious_data <- use_of_force_data %>% filter(Problem == "Suspicious Person ")
+sum(is.na(uof_suspicious_data))
+```
+
+```{r, eval=FALSE}
+view(minneapolis_tracts@data)
+```
+
+```{r}
+sum(is.na(minneapolis_tracts@data))
+```
+
+```{r}
+#########Load in data########################################################
+load("../../data/working/Census_Tracts_Data.Rdata")
+use_of_force_data <- read.csv("../../data/original/Police_Use_of_Force.csv")
+uof_suspicious_data <- use_of_force_data %>% filter(Problem == "Suspicious Person ")
+
+coordinates(uof_suspicious_data) <- ~X+Y
+
+proj4string(uof_suspicious_data) <- proj4string(minneapolis_tracts)
+
+over_minn_uof_sus <- over(uof_suspicious_data, minneapolis_tracts)
+
+#might need to comment this out
+# over_minn_uof_sus <- over_minn_uof_sus %>% drop_na()
+
+#work with overlay data
+over_minn_uof_sus$perc_white <- over_minn_uof_sus$total_white/over_minn_uof_sus$total_pop
+over_minn_uof_sus$perc_poverty <- over_minn_uof_sus$below_pov_level/over_minn_uof_sus$total_pop
+###########################################################################
+
+#######Make window#########################################################
+minn_wards <- st_read("../../data/original/City_Council_Wards/WARDS.shp") %>%
+  as_Spatial()
+
+#proj4string(minn_wards)
+#all_wards <- st_transform(st_union(st_as_sf(minn_wards)),crs = 6345)
+#all_wards_win <- all_wards %>% as.owin()
+###########################################################################
+
+set.seed(1342343)
+cov1 <- over_minn_uof_sus$perc_white
+cov2 <- over_minn_uof_sus$perc_poverty
+beta0 <- 1
+beta1 <- 1
+beta2 <- 1
+
+#Getting integration points for all tracts
+minn_tracts.sf <- st_as_sf(minneapolis_tracts)
+#Calculating the area for each tract
+for (i in 1:nrow(minn_tracts.sf)) {
+  minn_tracts.sf[i, 39] <- area(st_transform(st_union(minn_tracts.sf[i, ]),crs = 6345))
+}
+minn_tracts.sf$tract_area <- minn_tracts.sf$V39
+minn_tracts.sf <- minn_tracts.sf[, -39]
+
+#One method of getting number of integration points per tract
+minn_tracts.sf$num_sim_points <- round(minn_tracts.sf$tract_area / min(minn_tracts.sf$tract_area), digits = 0) * multiplier
+
+#sim_points_coor will get appended to in the for loop
+sim_points_coor <- data.frame(matrix(ncol = 2, nrow = 0))
+colnames(sim_points_coor) <- c('x', 'y')
+
+set.seed(1342343)
+
+for (i in 1:nrow(minn_tracts.sf)) {
+  all_tracts_loop <- st_transform(st_union(minn_tracts.sf[i, ]),crs = 6345)
+  all_tracts_win_loop <- all_tracts_loop %>% as.owin()
+  sim_points_loop <- runifpoint(minn_tracts.sf[i, ]$num_sim_points, win=all_tracts_win_loop)
+  sim_points_coor_loop <- sim_points_loop %>% as.data.frame()
+  sim_points_coor <- rbind(sim_points_coor, sim_points_coor_loop)
+}
+
+coordinates(sim_points_coor) <- ~x+y
+proj4string(sim_points_coor) <- proj4string(as_Spatial(all_tracts_loop))
+sim_points_coor <- spTransform(sim_points_coor, proj4string(minneapolis_tracts))
+
+over_sim_covs <- over(sim_points_coor, minneapolis_tracts) 
+
+over_sim_covs$perc_white <- over_sim_covs$total_white/over_sim_covs$total_pop
+over_sim_covs$perc_poverty <- over_sim_covs$below_pov_level/over_sim_covs$total_pop
+
+sim_points_coor_df = data.frame(sim_points_coor)
+```
+
+```{r}
+# sanity check
+minn_map +
+  geom_point(data = data.frame(sim_points_coor), aes(x=x, y=y, color=over_sim_covs$perc_white)) +
+  scale_color_gradient2(low="blue", high="red", mid="grey", midpoint=0) +
+  geom_polygon(data= wards_fortify, 
+                        aes(x = long, y = lat, group = group), 
+                        fill = NA, col = "black", size = 1)
+```
+
+```{r}
+sum(minn_tracts.sf[, 39]$tract_area)
+```
+
+```{r}
+write.csv(
+  data.frame(
+    x=uof_suspicious_data$X,
+    y=uof_suspicious_data$Y
+  ),
+  paste("/Users/ayaklos/Documents/GitHub/carleton_comps_22_23/src/aya/lgcp_likelihood_inputs/observed_pts.csv", sep=""),
+  row.names = FALSE)
+```
+
+```{r}
+write.csv(
+  data.frame(
+    perc_white = over_minn_uof_sus$perc_white,
+    perc_poverty = over_minn_uof_sus$perc_poverty
+  ), 
+  paste("/Users/ayaklos/Documents/GitHub/carleton_comps_22_23/src/aya/lgcp_likelihood_inputs/observed_pts_var.csv", sep=""),
+  row.names = FALSE)
+```
+
+```{r}
+write.csv(
+  data.frame(sim_points_coor), 
+  paste("/Users/ayaklos/Documents/GitHub/carleton_comps_22_23/src/aya/lgcp_likelihood_inputs/", as.character(multiplier), ".csv", sep=""),
+  row.names = FALSE
+)
+```
+
+```{r}
+write.csv(
+  data.frame(
+    perc_white=over_sim_covs$perc_white,
+    perc_poverty=over_sim_covs$perc_poverty
+  ), 
+  paste("/Users/ayaklos/Documents/GitHub/carleton_comps_22_23/src/aya/lgcp_likelihood_inputs/", as.character(multiplier), "_var", ".csv", sep=""),
+  row.names = FALSE)
+```
+
+## Generate knots
+
+```{r}
+lattice <- expand.grid(lon = seq(bbox(minn_wards)[1,1],bbox(minn_wards)[1,2],length.out = 20), 
+                       lat = seq(bbox(minn_wards)[2,1],bbox(minn_wards)[2,2],length.out = 20))
+
+sp_lattice <- lattice
+coordinates(sp_lattice) <- ~lon+lat
+proj4string(minn_wards) #check projection
+proj4string(sp_lattice) <- CRS("+proj=longlat +datum=WGS84 +no_defs")
+
+sp_lattice <- spTransform(sp_lattice, proj4string(minn_wards))
+over_lattice <- over(sp_lattice, minn_wards)
+lattice_full <- cbind(lattice, over_lattice)
+
+knots_and_other_stuff <- lattice_full %>%
+  filter(is.na(BDNUM) == FALSE)
+```
+
+```{r}
+write.csv(
+  data.frame(lon=knots_and_other_stuff$lon, 
+             lat=knots_and_other_stuff$lat), 
+  "/Users/ayaklos/Documents/GitHub/carleton_comps_22_23/src/aya/lgcp_likelihood_inputs/knots.csv", 
+  row.names=FALSE
+)
+```

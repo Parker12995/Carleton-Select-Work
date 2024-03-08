@@ -1,0 +1,215 @@
+Contents should be updates with brief descriptions on a regular basis. 
+This file should also include links to relevant data sources, along with 
+download dates. 
+
+
+
+-src/
+	- aya/
+	  - AyaCopy_01_generate_inputs.Rmd
+	    - Last modified 3/27/2023
+	  - AyaCopy_02_lgcp_likelihood.Rmd
+	    - Last modified 3/27/2023
+	  - census_data_overlay.Rmd
+	    - Creating Census Tract overlay/projection to use with Ward map
+	    - Last modified 3/1/2023
+	  - crime_data_EDA.pdf
+	  - crime_data_EDA.Rmd
+	    - Initial EDA on Crime Data dataset
+	    - Last modified 2/3/2023
+	  - CSR_test_police_data.Rmd
+	  -lgcp_likelihood_inputs/
+	  - likelihood_equation.R
+	  - uof_eda.Rmd
+	  - using_nimble.R
+	  - ward9_map_crimecases.Rmd
+	- claire_helper_code/
+	  - 00_boston_bg_code.Rmd
+	    - Example coding on Boston census tracts
+	    - Last modified 2/15/2023
+	  - 00_ward_code.R
+	    - Example coding on working with ward maps and projections
+	    - Last modified 2/15/2023
+	- Harper/
+	  - George Floyd.Rmd
+	    - Plots on Crime pre, post, and during George Floyd protests
+	    - Last modified 3/27/2023
+	  - Race and Sex Plots.Rmd
+	    - Density maps and bar graphs on sex and race in suspicious cases
+	    - Last modified 3/8/2023
+	  - Strange UOF Case Numbers.Rmd
+	    - Exploration of strange Use of Force case numbers, including maping and tables
+	    - Last modified 2/13/2023
+	  - W1 (Wed) EDA - Crime Data.Rmd
+	    - 1st week EDA on Crime Data dataset
+	    - Last modified 2/8/2023
+	  - W2 - Police Incidents Data.Rmd
+	    - Initial EDA on Police Incidents Data, including binding datasets
+	    - Last modified 2/8/2023
+	  - Ward 9 Maps.Rmd
+	    - Density plots for suspicious cases, offenses, and 911 call comparisons in Ward 9
+	    - Last modified 3/8/2023
+	- missingness_analysis
+	  - missingness_analysis.Rmd
+	- parker/
+	  - census_and_spatial_testing.Rmd
+	  - census_block_data.Rmd
+	    - Finding census blocks located in Ward 9 specifically
+	    - Last modified 4/5/2023
+	  - census_data.Rmd
+	  - LGCP_Coding.Rmd
+	  - Obstruction_of_Justice.Rmd
+	  - other_wards_EDA.Rmd
+	  - police_incidents_merging.Rmd
+	  - suspicious_EDA.Rmd
+	  - use_of_force_EDA.Rmd
+	  - nhpp_samples.csv
+	  - nimble_lgcp.Rmd
+	  - nimble_lgcp_debug.Rmd
+	  - nimble_nhpp.Rmd
+	- zhihan/
+	  - 01_generate_inputs.Rmd
+	  - 02_lgcp_likelihood.Rmd
+	  - dataset_overlap.Rmd
+	  - eda_case_number_overlap.pdf
+	  - gp_interpolation.Rmd
+	  - knots.csv
+	  -lgcp_likelihood_inputs/
+	    - 1_car.csv
+	    - 1.csv
+	    - knots.csv
+	    - observed_pts_var.csv
+	    - observed_pts.csv
+	  - lgcp_simple_example.Rmd
+	  - likelihood_equation.R
+	  - missingness_and_overlap/
+	    - all_three.png
+	    - all_three.png.2023-03-08_01-42-52.log
+	    - all_three.png.2023-02-08_01-45-29.log
+	    - crime_missingness.Rmd
+	    - force_missingness.pdf
+	    - force_missingness.Rmd
+	    - just_two.png
+	    - just_two.png.2023-02-08_01-42-46.log
+	    - just_two.png.2023-02-08_01-45-35.log
+	    - just_two.png.2023.02-08_09-56-09.log
+	    - overlap.Rmd
+	  - nimble_likelihood_example.Rmd
+	  - time_series_eda.Rmd
+	  - use_of_force_vs_incidents.pdf
+	  - w1_police_use_of_force_exploration.Rmd
+	  
+
+
+
+-data/
+	- original/
+		- Minneapolis Open Data on Public Safety: https://opendata.minneapolismn.gov/search?groupIds=79606f50581f4a33b14a19e61c4891f7
+		- Police Incidents/
+		  - Police_Incidents_2023.csv
+		    - Source: https://opendata.minneapolismn.gov/datasets/cityoflakes::police-incidents-2023/explore?location=44.970643%2C-93.265763%2C12.67
+		    - Downloaded 2/3/2023
+	  	- Police_Incidents_2022.csv
+		  	- Source: https://opendata.minneapolismn.gov/datasets/cityoflakes::police-incidents-2022/explore?location=44.970586%2C-93.265179%2C12.31
+		  	- Downloaded 1/2/2023
+		  - Police_Incidents_2021.csv
+		    - Source: https://opendata.minneapolismn.gov/datasets/cityoflakes::police-incidents-2021/explore?location=44.970907%2C-93.265326%2C12.76
+		    - Downloaded 1/17/2023
+		  - Police_Incidents_2020.csv
+		    - Source: https://opendata.minneapolismn.gov/datasets/cityoflakes::police-incidents-2020/explore?location=44.970899%2C-93.265189%2C12.76
+		    - Downloaded 1/17/2023
+		  - Police_Incidents_2019.csv
+		    - Source: https://opendata.minneapolismn.gov/datasets/cityoflakes::police-incidents-2019/explore?location=44.970454%2C-93.265189%2C12.76
+		    - Downloaded 1/17/2023
+		  - Police_Incidents_2018.csv
+		    - Source: https://opendata.minneapolismn.gov/datasets/cityoflakes::police-incidents-2018/explore?location=19.386288%2C-46.664555%2C3.98
+		    - Downloaded 1/17/2023
+		  - Police_Incidents_2018_PIMS.csv
+		    - Source: https://opendata.minneapolismn.gov/datasets/police-incidents-2018-pims/explore?location=44.970453%2C-93.265307%2C12.66
+		    - Downloaded 2/3/2023
+		  - Police_Incidents_2017.csv
+		    - Source: https://opendata.minneapolismn.gov/datasets/cityoflakes::police-incidents-2017/explore?location=19.713962%2C-46.664555%2C4.08
+		    - Downloaded 1/17/2023
+		  - Police_Incidents_2016.csv
+		    - Source: https://opendata.minneapolismn.gov/datasets/cityoflakes::police-incidents-2016/explore?location=44.970472%2C-93.264500%2C12.75
+		    - Downloaded 1/17/2023
+		  - Police_Incidents_2015.csv
+		    - Source: https://opendata.minneapolismn.gov/datasets/cityoflakes::police-incidents-2015/explore?location=44.970472%2C-93.264500%2C12.75
+		    - Downloaded 1/17/2023
+		  - Police_Incidents_2014.csv
+		    - Source: https://opendata.minneapolismn.gov/datasets/cityoflakes::police-incidents-2014/explore?location=44.970472%2C-93.264500%2C12.75
+		    - Downloaded 1/17/2023
+		  - Police_Incidents_2013.csv
+		    - Source: https://opendata.minneapolismn.gov/datasets/cityoflakes::police-incidents-2013/explore?location=44.970472%2C-93.264500%2C12.75
+		    - Downloaded 1/17/2023
+		  - Police_Incidents_2012.csv
+		    - Source: https://opendata.minneapolismn.gov/datasets/cityoflakes::police-incidents-2012/explore?location=44.970472%2C-93.264500%2C12.75
+		    - Downloaded 1/18/2023
+		  - Police_Incidents_2011.csv
+		    - Source: https://opendata.minneapolismn.gov/datasets/cityoflakes::police-incidents-2011/explore?location=44.970472%2C-93.264500%2C12.75
+		    - Downloaded 1/18/2023
+		  - Police_Incidents_2010.csv
+		    - Source: https://opendata.minneapolismn.gov/datasets/cityoflakes::police-incidents-2010/explore?location=44.970472%2C-93.264500%2C12.75
+		    - Downloaded 1/18/2023
+		- Police_Use_of_Force.csv
+			- Source: https://opendata.minneapolismn.gov/datasets/police-use-of-force/explore?location=45.028802%2C-93.139155%2C10.43
+			- Downloaded 1/2/2023
+		- Crime_Data.csv
+			- Source: https://opendata.minneapolismn.gov/datasets/cityoflakes::crime-data/explore?location=44.981237%2C-93.234443%2C10.90
+			- Downloaded 1/2/2023
+		- Minneapolis_Neighborhoods/
+		  - Minneapolis_Neighborhoods.cpg
+		  - Minneapolis_Neighborhoods.dbf
+		  - Minneapolis_Neighborhoods.prj
+		  - Minneapolis_Neighborhoods.shp
+		  - Minneapolis_Neighborhoods.shx
+		  - Minneapolis_Neighborhoods.xml
+		  - Minneapolis_Neighborhoods.zip
+		- City_Council_Wards/
+		  - WARDS.cpg
+		  - WARDS.dbf
+		  - WARDS.prj
+		  - WARDS.shp
+		  - WARDS.shx
+		- mp-mn-ramsey-covenants-main.zip
+			- Source: https://github.com/UMNLibraries/mp-mn-ramsey-covenants
+			- Relevant website: https://mappingprejudice.umn.edu/racial-covenants/maps-data
+			- Relevant article: https://www.washingtonpost.com/transportation/2022/12/17/racial-covenants-mapping/?pwapi_token=eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJzdWJpZCI6IjE5OTg1NjE0IiwicmVhc29uIjoiZ2lmdCIsIm5iZiI6MTY3MTQ5MjU4MywiaXNzIjoic3Vic2NyaXB0aW9ucyIsImV4cCI6MTY3MjcwMjE4MywiaWF0IjoxNjcxNDkyNTgzLCJqdGkiOiI1MDY1Mzk1Zi1hNzUyLTRlNjUtOGI2Yy1hZjMyNjE1NGFmNDQiLCJ1cmwiOiJodHRwczovL3d3dy53YXNoaW5ndG9ucG9zdC5jb20vdHJhbnNwb3J0YXRpb24vMjAyMi8xMi8xNy9yYWNpYWwtY292ZW5hbnRzLW1hcHBpbmcvIn0.ZzkoanE-T5_OsRJ5afG-tcEiBTI7kOEdJs4Z86Uw7b0
+			- Downloaded 1/2/2023
+		- Hennepin_County_Racial_Covenants.zip
+			- Source: https://conservancy.umn.edu/handle/11299/217209
+			- Shares same relevant website and article from above
+			- Downloaded 1/2/2023
+		- boston_crime-incident-reports-2020.csv
+	- working/
+	  - Census_Blocks_Data.Rdata
+	  - Census_Tracts_Data.Rdata
+	  - integration_points/
+	    - 494points_coord.csv
+	    - 494points.csv
+	    - 988points_cord.csv
+	    - 988points.csv
+	    - 1482points_coord.csv
+	    - 1482points.csv
+	    - simpoints_10each.csv
+	    - simpoints_15each.csv
+	  - minn_tracts_sf.csv
+	  - over_sim_points_census.csv
+	  - overlay_pointsdatasets_censusdata/
+	    - over_uof_census.csv
+	  - Police_Incidents.csv
+	  - README.txt
+	  - ward_9_blockgroups/
+	    - 71_knots.csv
+	    - over_simpoints_cov_10each.csv
+	    - over_simpoints_cov_scalebyarea_mult8.csv
+	    - over_simpoints_cov_15each.csv
+	    - use_of_force/
+	     - obs_points_with_bg_level_cov.csv
+	    - Ward9_Blocks.Rdata
+
+	  
+- output/
+  - google_doc_links.docx
+  
+- README.txt.txt

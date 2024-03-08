@@ -1,0 +1,230 @@
+---
+title: "Crime Data EDA"
+author: "Aya Klos"
+date: '2023-01-04'
+output:
+  pdf_document: default
+  html_document: default
+editor_options: 
+  markdown: 
+    wrap: 72
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(ggplot2)
+library(tidyverse)
+library(lubridate)
+```
+
+Notes on the dataset: - each row has data for a given crime - NIBRS
+stands for "National Incident-Based-Reporting System, which is an
+incident-based reporting system where law enforcement collects data on
+each crime occurrence - NIBRS codes correspond to a given offense
+(offenses with the same code number followed by a letter are all
+categorized under the same broad offense category) - there are group"A"
+and group "B" offenses, the latter of which must have an arrest before
+it is NIBRS reportable - this link has descriptions of each of the
+variables in the data set
+(<https://www.minneapolismn.gov/media/-www-content-assets/documents/CrimeDashboardInfo.pdf>)
+
+Strange notes about the dataset: - the X column seems to be the same as
+the Longitude column and Y the same as Latitude
+
+```{r data}
+data <- read.csv("/Users/ayaklos/Documents/GitHub/carleton_comps_22_23/data/original/Crime_Data.csv") 
+
+data <- data %>% arrange(NIBRS_Crime_Against)
+
+#41269 crimes were not part of the NIBRS data
+sum(data$NIBRS_Crime_Against == "Non NIBRS Data")
+```
+
+```{r}
+neighborhood.df <- table(data$Neighborhood) %>% as.data.frame()
+precinct.df <- table(data$Precinct) %>% as.data.frame()
+ward.df <- table(data$Ward) %>% as.data.frame()
+
+ggplot(neighborhood.df, aes(x = reorder(Var1,-Freq), y = Freq)) +
+  geom_bar(stat = "identity") +
+  labs(x = "Neighborhood") +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
+
+ggplot(precinct.df, aes(x = reorder(Var1,-Freq), y = Freq)) +
+  geom_bar(stat = "identity") +
+  labs(x = "Precinct")
+
+ggplot(ward.df, aes(x = reorder(Var1,-Freq), y = Freq)) +
+  geom_bar(stat = "identity") +
+  labs(x = "Ward")
+
+data.1 <- data
+data.1$Ward <- as.character(data.1$Ward)
+ggplot(data.1, aes(x = Ward, fill = Offense)) +
+  geom_bar()
+
+ggplot(data.1, aes(x = Ward, fill = NIBRS_Crime_Against)) +
+  geom_bar()
+ggplot(data.1, aes(x = Ward, fill = NIBRS_Crime_Against)) +
+  geom_bar(position = "fill")
+
+data.1$Crime_Count <- as.character(data.1$Crime_Count)
+ggplot(data.1, aes(x = Ward, fill = Crime_Count)) +
+  geom_bar()
+ggplot(data.1, aes(x = Ward, fill = Crime_Count)) +
+  geom_bar(position = "fill")
+
+table(data$Crime_Count)
+
+# ggplot(data, aes(x = Longitude, y = Latitude)) +
+#   geom_point()
+```
+
+Download and explore all datasets:
+
+```{r}
+crime_data <- read.csv("/Users/ayaklos/Documents/GitHub/carleton_comps_22_23/data/original/Crime_Data.csv") 
+police_use_of_force_data <- read.csv("/Users/ayaklos/Documents/GitHub/carleton_comps_22_23/data/original/Police_Use_of_Force.csv") 
+
+pid.2010 <- read.csv("/Users/ayaklos/Documents/GitHub/carleton_comps_22_23/data/original/Police\ Incidents/Police_Incidents_2010.csv")
+pid.2011 <- read.csv("/Users/ayaklos/Documents/GitHub/carleton_comps_22_23/data/original/Police\ Incidents/Police_Incidents_2011.csv")
+pid.2012 <- read.csv("/Users/ayaklos/Documents/GitHub/carleton_comps_22_23/data/original/Police\ Incidents/Police_Incidents_2012.csv")
+pid.2013 <- read.csv("/Users/ayaklos/Documents/GitHub/carleton_comps_22_23/data/original/Police\ Incidents/Police_Incidents_2013.csv")
+pid.2014 <- read.csv("/Users/ayaklos/Documents/GitHub/carleton_comps_22_23/data/original/Police\ Incidents/Police_Incidents_2014.csv")
+pid.2015 <- read.csv("/Users/ayaklos/Documents/GitHub/carleton_comps_22_23/data/original/Police\ Incidents/Police_Incidents_2015.csv")
+pid.2016 <- read.csv("/Users/ayaklos/Documents/GitHub/carleton_comps_22_23/data/original/Police\ Incidents/Police_Incidents_2016.csv")
+pid.2017 <- read.csv("/Users/ayaklos/Documents/GitHub/carleton_comps_22_23/data/original/Police\ Incidents/Police_Incidents_2017.csv")
+pid.2018 <- read.csv("/Users/ayaklos/Documents/GitHub/carleton_comps_22_23/data/original/Police\ Incidents/Police_Incidents_2018.csv")
+pid.2019 <- read.csv("/Users/ayaklos/Documents/GitHub/carleton_comps_22_23/data/original/Police\ Incidents/Police_Incidents_2019.csv")
+pid.2020 <- read.csv("/Users/ayaklos/Documents/GitHub/carleton_comps_22_23/data/original/Police\ Incidents/Police_Incidents_2020.csv")
+pid.2021 <- read.csv("/Users/ayaklos/Documents/GitHub/carleton_comps_22_23/data/original/Police\ Incidents/Police_Incidents_2021.csv")
+pid.2022 <- read.csv("/Users/ayaklos/Documents/GitHub/carleton_comps_22_23/data/original/Police\ Incidents/Police_Incidents_2022.csv")
+
+pid.2010$Year <- "2010"
+pid.2011$Year <- "2011"
+pid.2012$Year <- "2012"
+pid.2013$Year <- "2013"
+pid.2014$Year <- "2014"
+pid.2015$Year <- "2015"
+pid.2016$Year <- "2016"
+pid.2017$Year <- "2017"
+pid.2018$Year <- "2018"
+pid.2019$Year <- "2019"
+pid.2020$Year <- "2020"
+pid.2021$Year <- "2021"
+pid.2022$Year <- "2022"
+
+pid.10to16 <- rbind(pid.2010,pid.2011,pid.2012,pid.2013,pid.2014,pid.2015,pid.2016)
+pid.17to18 <- rbind(pid.2017,pid.2018)
+pid.19to22 <- rbind(pid.2019,pid.2020,pid.2021,pid.2022)
+
+names(pid.10to16)[names(pid.10to16) == "ESRI_OID"] <- "OBJECTID"
+pid.10to18 <- rbind(pid.10to16,pid.17to18)
+
+#######detour-trying to figure out differences between variable names in pid datasets##########
+var.names.10to18 <- as.data.frame(variable.names(pid.10to16)) 
+colnames(var.names.10to18) <- "name"
+var.names.10to18 <- var.names.10to18 %>% arrange(name)
+
+var.names.19to22 <- as.data.frame(variable.names(pid.19to22)) 
+colnames(var.names.19to22) <- "name"
+var.names.19to22 <- var.names.19to22 %>% arrange(name)
+###############################################################################################
+
+#reported date and reported time for 2010-18
+pid.10to18$ReportedDate <- ymd_hms(pid.10to18$ReportedDate)
+ReportedDate.10to18 <- date(pid.10to18$ReportedDate)
+ReportedTime.10to18 <- format(as.POSIXct(pid.10to18$ReportedDate), format = "%H:%M:%S")
+
+#begin date and begin time for 2010-18
+pid.10to18$BeginDate <- ymd_hms(pid.10to18$BeginDate)
+BeginDate.10to18 <- date(pid.10to18$BeginDate)
+BeginTime.10to18 <- format(as.POSIXct(pid.10to18$BeginDate), format = "%H:%M:%S")
+
+pid.19to22$reportedDateTime <- ymd_hms(pid.19to22$reportedDateTime)
+ReportedDate.19to22 <- date(pid.19to22$reportedDateTime)
+ReportedTime.19to22 <- format(as.POSIXct(pid.19to22$reportedDateTime), format = "%H:%M:%S")
+
+# pid.19to22$beginDate <- ymd_hms(pid.19to22$beginDate)
+# BeginDate.19to22 <- date(pid.19to22$beginDate)
+# pid.19to22$beginTime <- as.POSIXct(pid.19to22$beginTime, format="%H%M")
+# BeginTime.19to22 <- hm(pid.19to22$beginTime)
+
+#get rid of whitespace in case number entries
+pid.10to18$CCN <- gsub(" ","",pid.10to18$CCN)
+
+```
+
+Police incident data from 2013 to 2016 have the same variable names.
+Instead of ESRI_OID, 2017 and 2018 data have OBJECTID. Data from 2019 to
+2022 have similar variables, though more information and are formatted
+differently.
+
+*Variables in common between 2019 and 2018 dataset* objectid public
+address CCN from 2018 = casenumber from 2019 (I think) precinct reported
+date begin date offense description UCR code entered date GBSID from
+2018 = centergbsid from 2019 (I think) lat and long (2019 has centerlat
+and centerlong) X and Y (2019 has both X and Y and centerX and centerY)
+neighborhood lastchanged last update date
+
+*only 2019* reported time
+
+*only 2018* ControlNbr? is time in 2018 the same as reported time or
+begin time in 2019?
+
+A lot of the missingness seems to come from the variable GBSID.
+
+```{r}
+#use trimws() to clean up whitespace
+unique(pid.10to16$Precinct)
+unique(pid.17to18$Precinct) #has NA and 99 as values
+unique(pid.19to22$precinct) #has whitespace after values, UI, and blank entries
+
+unique(pid.10to16$Offense)
+unique(pid.17to18$Offense) 
+unique(pid.19to22$offense) #has whitespace after values
+
+pid.17to18$Precinct[pid.17to18$Precinct == 99] <- NA
+unique(pid.17to18$Precinct) #get rid of 99s
+
+pid.19to22$precinct <- gsub(" ","",pid.19to22$precinct)
+pid.19to22$precinct[pid.19to22$precinct == "UI" |
+                      pid.19to22$precinct == "" |
+                      pid.19to22$precinct == "0"] <- NA
+unique(pid.19to22$precinct) #get rid of whitespace and change odd entries to NA
+
+pid.19to22$offense <- gsub(" ","",pid.19to22$offense)
+unique(pid.19to22$offense) #this seems to have gotten rid of it
+```
+
+```{r eda}
+precinct_pid.10to16.df <- table(pid.10to16$Precinct) %>% as.data.frame()
+precinct_pid.17to18.df <- table(pid.17to18$Precinct) %>% as.data.frame()
+precinct_pid.19to22.df <- table(pid.19to22$Precinct) %>% as.data.frame()
+precinct.df <- rbind(precinct_pid.10to16.df,precinct_pid.17to18.df,precinct_pid.19to22.df)
+
+ggplot(precinct.df, aes(x = reorder(Var1,-Freq), y = Freq)) +
+  geom_bar(stat = "identity") +
+  labs(x = "Precinct")
+
+offense_pid.10to16.df <- table(pid.10to16$Offense) %>% as.data.frame()
+offense_pid.17to18.df <- table(pid.17to18$Offense) %>% as.data.frame()
+offense_pid.19to22.df <- table(pid.19to22$offense) %>% as.data.frame()
+offense.df <- rbind(offense_pid.10to16.df,offense_pid.17to18.df,offense_pid.19to22.df)
+
+#thefts, theft from motor vehicle, burglary of dwelling, motor vehicle theft
+#I think TFMV and AUTOTH can be combined
+#but basically, theft is the most common crime
+ggplot(offense.df, aes(x = reorder(Var1,-Freq), y = Freq)) +
+  geom_bar(stat = "identity") +
+  labs(x = "Offense") +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
+
+pid.10to16.geo <- pid.10to16[pid.10to16$Long != 0 & pid.10to16$Lat != 0,]
+ggplot(pid.10to16.geo, aes(x = Long, y = Lat)) +
+   geom_point(alpha = 0.5)
+```
+
+```{r}
+df.join <- inner_join(crime_data, pid.19to22, by=c('Case_NumberAlt'='caseNumber'))
+```

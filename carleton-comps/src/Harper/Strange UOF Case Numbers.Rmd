@@ -1,0 +1,88 @@
+---
+title: "Strange UOF Case Numbers"
+output: html_document
+date: "2023-02-12"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(dplyr)
+library(sf)
+library(sp)
+library(ggmap)
+```
+
+```{r}
+setwd("/Users/Harper/Desktop/carleton_comps_22_23")
+```
+
+```{r}
+Police_Force <- read_csv("../../data/original/Police_Use_of_Force.csv")
+testing <- testing <- Police_Force %>%
+  mutate(goodCaseNumber = str_detect(CaseNumber, "^\\d{2}-\\d{6}$"))
+testing1 <- Police_Force %>%
+  mutate(goodCaseNumber = str_detect(CaseNumber, "^\\d{2}-\\d{6}$")) %>%
+  filter(goodCaseNumber == "FALSE")
+testing2 <- Police_Force %>%
+  mutate(goodCaseNumber = str_detect(CaseNumber, "^\\d{2}-\\d{6}$")) %>%
+  filter(goodCaseNumber == "TRUE")
+sum(testing$goodCaseNumber == FALSE)
+```
+
+```{r}
+ggplot(testing, aes(Neighborhood)) +
+  geom_bar() +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
+#15 or 16 values for each Neighborhood
+#15 in Bancroft, Field, Humboldt Industrial Area, Kenwood, Logan Park, Minnehaha - all missing 2023
+table(testing1$Neighborhood)
+testing1 %>%
+  filter(Neighborhood == "Bancroft") %>%
+  arrange(desc(CaseNumber))
+unique(testing1$Neighborhood) #87
+unique(testing$Neighborhood)#87 and NA
+ggplot(testing1, aes(ResponseDate)) +
+  geom_bar() +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
+#87 cases from every year, except 81 for 2023
+#Number at the front of case number corresponds to the year in ResponseDate
+#There is one case per neighborhood per year
+testing1 %>%
+  select(Neighborhood, CaseNumber) %>%
+  arrange(desc(CaseNumber))
+#PoliceUseOfForceID goes up chronologically from 2008 to 2022 in Police_Force, all PoliceUseOfForceIDs for invalid CaseNumbers are the highest case numbers, all above the chronologically latest case
+#Invalid cases PoliceUseOfForceID 43639563 and above
+#Valid cases between 43602475 and 43639563
+```
+
+```{r}
+minn_neighborhood <- st_read("../../data/original/Minneapolis_Neighborhoods/Minneapolis_Neighborhoods.shp") %>%
+  as_Spatial()
+
+minn_map <- ggmap(get_map(c(left = -93.35, bottom = 44.88, 
+                            right = -93.18, top = 45.06), source = "stamen"))
+
+nb_fortify <- broom::tidy(minn_neighborhood)
+minn_neighborhood$id <- row.names(minn_neighborhood)
+nb_fortify <- left_join(nb_fortify, minn_neighborhood@data)
+
+nb_fortify %>%
+  mutate(cc = ifelse(BDNAME == "Bancroft"|BDNAME == "Field"|BDNAME == "Humboldt Industrial Area"|BDNAME == "Kenwood"
+                     |BDNAME == "Logan Park" |BDNAME == "Minnehaha", TRUE, FALSE))
+
+nb_fortify <- nb_fortify %>%
+  mutate(cc = ifelse(BDNAME == "Bancroft", 7,
+                     ifelse(BDNAME == "Field", 6, 
+                            ifelse(BDNAME == "Humboldt Industrial Area", 5,
+                                   ifelse(BDNAME == "Kenwood", 4,
+                                          ifelse(BDNAME == "Logan Park", 3,
+                                                 ifelse(BDNAME == "Minnehaha", 2, .5)))))))
+#Neighborhoods with only 15 points with ward and neighborhood lines
+minn_map + geom_polygon(data= nb_fortify, 
+                        aes(x = long, y = lat, group = group), 
+                        fill = nb_fortify$cc, col = "tan", size = 1)+
+  geom_polygon(data= wards_fortify, 
+                        aes(x = long, y = lat, group = group), 
+                        fill = NA, col = "black", lty = "dotted")
+```

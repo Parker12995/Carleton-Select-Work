@@ -1,0 +1,132 @@
+---
+title: "Race and Gender Plots"
+output: html_document
+date: "2023-02-26"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(dplyr)
+library(tidyverse)
+library(ggplot2)
+```
+
+```{r}
+Crime_Data <- read_csv("../../data/original/Crime_Data.csv")
+dim(Crime_Data)
+Police_Force <- read_csv("../../data/original/Police_Use_of_Force.csv")
+
+suspicious_problem_force <- Police_Force %>%
+  filter(
+    str_detect(Problem, "Suspicious Person") == TRUE, X < 0)
+count(suspicious_problem_force)
+#5423 cases
+
+suspicious_vehicle_force <- Police_Force %>%
+  filter(
+    str_detect(Problem, "Suspicious Vehicle") == TRUE, X < 0)
+count(suspicious_vehicle_force)
+
+#creating datasets based on Is911Call
+no911Force <- suspicious_problem_force %>%
+  filter(Is911Call == "No") 
+#4,864 Suspicious Person Problems that don't start from a 911 Call
+# ~623 in Ward 9
+#All cases with 0,0 coordinates have Is911Call = 0
+
+
+yes911Force <- suspicious_problem_force %>%
+  filter(Is911Call == "Yes")
+#Only 600 Suspicious Person Problems come from 911 Calls
+# ~73 in Ward 9
+
+no911Vehicle <- suspicious_vehicle_force %>%
+  filter(Is911Call == "No") 
+#1480 Suspicious Vehicle Problems not from 911 Call
+
+
+yes911Vehicle <- suspicious_vehicle_force %>%
+  filter(Is911Call == "Yes") 
+#259 Suspicious Vehicle Problems from 911 Call
+```
+
+```{r}
+#race/gender in 911 and suspicious person/vehicle cases
+suspicious_problem_force_race <- suspicious_problem_force %>%
+  filter(Race != "not recorded",Race != "Unknown")
+table(suspicious_problem_force$Race)
+
+ggplot(suspicious_problem_force_race, aes(Is911Call, fill = Race)) +
+  geom_bar(position = "fill")+
+  labs(title = "Suspicious Person Use of Force Cases by if 911 Call and Race", 
+       x= "Is 911 Call", y = "Percent")
+
+ggplot(suspicious_problem_force, aes(Is911Call, fill = Sex)) +
+  geom_bar(position = "fill")+
+  labs(title = "Suspicious Person Use of Force Cases by if 911 Call and Sex", 
+       x= "Is 911 Call", y = "Percent")
+
+suspicious_vehicle_force_race <- suspicious_vehicle_force %>%
+  filter(Race != "not recorded",Race != "Unknown")
+table(suspicious_vehicle_force$Race)
+
+ggplot(suspicious_vehicle_force_race, aes(Is911Call, fill = Race)) +
+  geom_bar(position = "fill")+
+  labs(title = "Suspicious Vehicle Use of Force Cases by if 911 Call and Race", 
+       x= "Is 911 Call", y = "Percent")
+
+ggplot(suspicious_vehicle_force, aes(Is911Call, fill = Sex)) +
+  geom_bar(position = "fill")+
+  labs(title = "Suspicious Vehicle Use of Force Cases by if 911 Call and Sex", 
+       x= "Is 911 Call", y = "Percent")
+
+ward9_map +
+  geom_hline(yintercept = 44.9483, size = 1.5, color = "Yellow") +
+  geom_jitter(data = suspicious_problem_force, aes(x=X, y=Y, color = Race)) +
+     geom_polygon(data= ward9, 
+                        aes(x = long, y = lat, group = group), 
+                        fill = NA, col = "black", size = 1) +
+  labs(title = "Suspicious Person Cases by Race")
+
+ward9_map +
+  geom_hline(yintercept = 44.9483, size = 1.5, color = "Yellow") +
+  geom_jitter(data = suspicious_problem_force, aes(x=X, y=Y, color = Sex)) +
+     geom_polygon(data= ward9, 
+                        aes(x = long, y = lat, group = group), 
+                        fill = NA, col = "black", size = 1) +
+  labs(title = "Suspicious Person Cases by Sex")
+```
+
+```{r}
+#Density Plots by Race
+suspicious_white <- suspicious_problem_force %>%
+  filter(Race == "White")
+count(suspicious_white)
+
+suspicious_black <- suspicious_problem_force %>%
+  filter(Race == "Black")
+count(suspicious_black)
+
+ward9_map +
+   stat_density_2d(data = suspicious_white, aes(x=X, y=Y, fill = ..level..), geom = "polygon", alpha = .5) +
+  scale_fill_gradient2(low = "yellow", mid = "red", high = "purple", midpoint = 4000)+
+  geom_hline(yintercept = 44.9483, size = .5, color = "green") + 
+   geom_polygon(data= ward9, 
+                        aes(x = long, y = lat, group = group), 
+                        fill = NA, col = "black", size = 1) +
+  labs(title = "Suspicious People and Race White")+
+  annotate("point",x =-93.2369628,y = 44.9481237)
+
+ward9_map +
+   stat_density_2d(data = suspicious_black, aes(x=X, y=Y, fill = ..level..), geom = "polygon", alpha = .5) +
+  scale_fill_gradient2(low = "yellow", mid = "red", high = "purple", midpoint = 1500)+
+  geom_hline(yintercept = 44.9483, size = .5, color = "green") + 
+   geom_polygon(data= ward9, 
+                        aes(x = long, y = lat, group = group), 
+                        fill = NA, col = "black", size = 1) +
+  labs(title = "Suspicious People and Race Black")+
+  annotate("point",x =-93.2369628,y = 44.9481237, color = "blue") +
+  annotate("text",x =-93.241, y = 44.9475, label = "3rd Police Precinct", size = 3) +
+  annotate("point", x = -93.263, y = 44.9483606, color = "blue") +
+  annotate("text", x = -93.2638, y = 44.9477, label = "East Lake and Chicago", size = 3)
+```

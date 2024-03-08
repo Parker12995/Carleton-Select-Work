@@ -1,0 +1,33 @@
+---
+title: "Police Use of Force EDA"
+author: "Parker Johnson"
+date: "2023-01-05"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(readr)
+library(ggplot2)
+library(dplyr)
+```
+
+## R Markdown
+
+```{r}
+use_of_force <- read_csv("../../data/original/Police_Use_of_Force.csv")
+
+#Count of NA values in each column
+na_count <- use_of_force %>% summarise(across(everything(), ~ sum(is.na(.))))
+na_count
+
+unique(use_of_force$ForceType)
+unique(use_of_force$Problem)
+
+
+use_of_force %>%
+  slice_min(EventAge, n = 1)
+sum(use_of_force$EventAge <= 0, na.rm = TRUE)
+```
+
+

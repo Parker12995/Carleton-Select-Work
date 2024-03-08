@@ -1,0 +1,145 @@
+
+```{r}
+library(ggmap)
+```
+
+```{r}
+library(dplyr)
+library(sf)
+library(ggplot2)
+library(ggmap)
+library(MASS)
+library(fields)
+library(tidyverse)
+library(sp)
+library(tigris)
+library(ggmap)
+library(tidycensus)
+library(maditr)
+library(spdep)
+library(spatialreg)
+library(gridExtra)
+library(sf)
+library(spatstat)
+```
+
+```{r}
+samples <- tail(read.csv("nhpp_samples.csv"), 5000)
+means <- colMeans(samples)
+means
+```
+
+```{r}
+sim_points <- read.csv("../../data/working/integration_points/494points_coord.csv")
+over_sim_points_census <- read.csv("../../data/working/over_sim_points_census.csv")
+over_sim_points_census$perc_white <- over_sim_points_census$total_white/over_sim_points_census$total_pop
+over_sim_points_census$perc_poverty <- over_sim_points_census$below_pov_level/over_sim_points_census$total_pop
+sim_covs <- as.matrix(over_sim_points_census[,c("perc_white", "perc_poverty", "total_pop")])
+sim_covs <- cbind(rep(1, nrow(sim_covs)), sim_covs)
+
+over_uof_census <- read.csv("../../data/working/overlay_pointdatasets_censusdata/over_uof_census.csv")
+over_uof_census$perc_white <- over_uof_census$total_white/over_uof_census$total_pop
+over_uof_census$perc_poverty <- over_uof_census$below_pov_level/over_uof_census$total_pop
+covs <- as.matrix(over_uof_census[,c("perc_white", "perc_poverty", "total_pop")])
+covs <- cbind(rep(1, nrow(covs)), covs)
+
+log_intensity_obs <- as.matrix(covs) %*% as.matrix(means)
+log_intensity_sim <- as.matrix(sim_covs) %*% as.matrix(means)
+```
+
+```{r}
+minn_map <- ggmap(get_map(c(left = -93.35, bottom = 44.88, 
+                            right = -93.18, top = 45.06), source = "stamen"))
+# minn_wards <- st_read("../../data/original/City_Council_Wards/WARDS.shp") %>%
+#   as_Spatial()
+# wards_fortify <- broom::tidy(minn_wards)
+# minn_wards$id <- row.names(minn_wards)
+# wards_fortify <- left_join(wards_fortify, minn_wards@data)
+# 
+# minn_map +
+#   geom_point(data = over_uof_census, aes(x=X, y=Y, color=log_intensity_obs), size=0.001) +
+#   geom_polygon(data= wards_fortify, 
+#                         aes(x = long, y = lat, group = group), 
+#                         fill = NA, col = "black", size = 1)
+# 
+# minn_map +
+#    stat_density_3d(data=over_sim_points_census, aes(x = x, y = y, z = log_intensity_obs), geom = "polygon")
+```
+
+```{r}
+
+```
+
+
+```{r}
+minn_tracts <- broom::tidy(minneapolis_tracts)
+
+use_of_force_data <- read.csv("../../data/original/Police_Use_of_Force.csv")
+# uof_suspicious_data <- use_of_force_data %>% filter(Problem == "Suspicious Person ")
+uof_suspicious_data <- use_of_force_data
+
+coordinates(uof_suspicious_data) <- ~X+Y
+proj4string(uof_suspicious_data) <- proj4string(minneapolis_tracts)
+over_minn_uof_sus <- over(uof_suspicious_data, minneapolis_tracts)
+
+agg_dat <- plyr::count(over_minn_uof_sus, c('GEOID'))
+colnames(agg_dat) <- c("GEOID", "count")
+
+minneapolis_tracts@data <- left_join(minneapolis_tracts@data, agg_dat)
+```
+
+```{r}
+minn_tracts$perc_white <- minn_tracts$total_white/minn_tracts$total_pop
+minn_tracts$perc_poverty <- minn_tracts$below_pov_level/minn_tracts$total_pop
+
+covs_tract <- minn_tracts[, c("perc_white", "perc_poverty", "total_pop")]
+covs_tract <- cbind(rep(1, nrow(covs_tract)), covs_tract)
+
+log_intensity_tract <- as.matrix(covs_tract) %*% as.matrix(means)
+
+length(log_intensity_tract)
+```
+
+```{r}
+minn_map + geom_point(data=data.frame(uof_suspicious_data), aes(x=X, y=Y), alpha=0.01)
+```
+
+```{r}
+# sum
+
+use_of_force_data <- read.csv("../../data/original/Police_Use_of_Force.csv")
+# uof_suspicious_data <- use_of_force_data %>% filter(Problem == "Suspicious Person ")
+uof_suspicious_data <- use_of_force_data
+
+coordinates(uof_suspicious_data) <- ~X+Y
+proj4string(uof_suspicious_data) <- proj4string(minneapolis_tracts)
+over_minn_uof_sus <- over(uof_suspicious_data, minneapolis_tracts)
+
+agg_dat <- plyr::count(over_minn_uof_sus, c('GEOID'))
+colnames(agg_dat) <- c("GEOID", "count")
+
+minneapolis_tracts@data <- left_join(minneapolis_tracts@data, agg_dat)
+
+minn_tracts <- broom::tidy(minneapolis_tracts)
+minneapolis_tracts$id <- row.names(minneapolis_tracts) #need to join data (if data is available)
+minn_tracts <- left_join(minn_tracts, minneapolis_tracts@data)
+
+minn_map +
+  geom_polygon(data= minn_tracts, aes(x = long, y = lat, group = group, fill = count), col = "black") + 
+  scale_fill_distiller(palette="Spectral")
+```
+
+```{r}
+# log intensity
+minn_map +
+  geom_polygon(data= minn_tracts, aes(x = long, y = lat, group = group, fill = exp(log_intensity_tract)), col = "black") + 
+  scale_fill_distiller(palette="Spectral")
+```
+
+```{r}
+xgrid <-  seq(, 100, 1)
+ygrid <-  seq(0, 100, 1)
+xy <-  expand.grid(x = xgrid, y = ygrid)
+ggplot() + geom_contour_filled(data=xy, aes(x=x, y=y, z=x + y))
+```
+

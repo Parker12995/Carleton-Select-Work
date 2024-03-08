@@ -1,0 +1,126 @@
+---
+title: "Generating Ward 8 Knots"
+output: pdf_document
+date: "2023-04-19"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(sp)
+library(ggplot2)
+library(dplyr)
+library(ggmap)
+library(sf)
+```
+
+```{r}
+load("../../data/working/ward_8_blockgroups/Ward8_Blocks.Rdata")
+
+lattice8<- expand.grid(lon = seq(bbox(ward8_blocks)[1,1],bbox(ward8_blocks)[1,2],length.out = 20), 
+                       lat = seq(bbox(ward8_blocks)[2,1],bbox(ward8_blocks)[2,2],length.out = 20))
+
+sp_lattice8 <- lattice8
+coordinates(sp_lattice8) <- ~lon+lat
+proj4string(ward8_blocks) #check projection
+proj4string(sp_lattice8) <- CRS("+proj=longlat +datum=NAD83 +no_defs")
+
+sp_lattice8 <- spTransform(sp_lattice8, proj4string(ward8_blocks))
+over_lattice8 <- over(sp_lattice8, ward8_blocks)
+lattice_full8 <- cbind(lattice8, over_lattice8)
+
+knots_and_other_stuff8 <- lattice_full8 %>%
+  filter(is.na(BDNUM) == FALSE)
+
+ggplot(knots_and_other_stuff8) + geom_point(aes(x=lon, y=lat))
+
+
+ward8_blocks_fortify <- broom::tidy(ward8_blocks)
+ward8_blocks$id <- row.names(ward8_blocks)
+ward8_blocks_fortify <- left_join(ward8_blocks_fortify, ward8_blocks@data)
+
+mn_wards <- st_read("../../data/original/City_Council_Wards/WARDS.shp")
+
+ward8 <-st_crop(mn_wards, xmin = -93.294, xmax = -93.244, ymin = 44.908, ymax = 44.952) %>%
+  as_Spatial()
+
+ggmap(get_map(c(left = -93.294, bottom = 44.908, 
+                            right = -93.244, top = 44.9521), source = "stamen")) +
+  geom_point(data = knots_and_other_stuff8, aes(x=lon, y=lat)) + 
+  geom_polygon(data= ward8_blocks_fortify, 
+                        aes(x = long, y = lat, group = group), 
+                        col = "blue", fill = NA, linewidth = 0.7) + 
+            geom_polygon(data= ward8, 
+                        aes(x = long, y = lat, group = group), 
+                        col = "red", fill = NA)
+
+#plot(ward8_blocks)
+```
+
+```{r}
+load("../../data/working/ward_8_blockgroups/Ward8_Blocks.Rdata")
+
+lattice2<- expand.grid(lon = seq(bbox(ward8_blocks)[1,1],bbox(ward8_blocks)[1,2],length.out = 15), 
+                       lat = seq(bbox(ward8_blocks)[2,1],bbox(ward8_blocks)[2,2],length.out = 15))
+
+sp_lattice2 <- lattice2
+coordinates(sp_lattice2) <- ~lon+lat
+proj4string(ward8_blocks) #check projection
+proj4string(sp_lattice2) <- CRS("+proj=longlat +datum=NAD83 +no_defs")
+
+sp_lattice2 <- spTransform(sp_lattice2, proj4string(ward8_blocks))
+over_lattice2 <- over(sp_lattice2, ward8_blocks)
+lattice_full2 <- cbind(lattice2, over_lattice2)
+
+knots_and_other_stuff2 <- lattice_full2 %>%
+  filter(is.na(BDNUM) == FALSE)
+
+ggplot(knots_and_other_stuff2) + geom_point(aes(x=lon, y=lat))
+
+
+ward8_blocks_fortify <- broom::tidy(ward8_blocks)
+ward8_blocks$id <- row.names(ward8_blocks)
+ward8_blocks_fortify <- left_join(ward8_blocks_fortify, ward8_blocks@data)
+
+mn_wards <- st_read("../../data/original/City_Council_Wards/WARDS.shp")
+
+ward8 <-st_crop(mn_wards, xmin = -93.294, xmax = -93.244, ymin = 44.908, ymax = 44.952) %>%
+  as_Spatial()
+
+ggmap(get_map(c(left = -93.294, bottom = 44.908, 
+                            right = -93.244, top = 44.9521), source = "stamen")) +
+  geom_point(data = knots_and_other_stuff2, aes(x=lon, y=lat)) + 
+  geom_polygon(data= ward8_blocks_fortify, 
+                        aes(x = long, y = lat, group = group), 
+                        col = "blue", fill = NA, linewidth = 0.7) + 
+            geom_polygon(data= ward8, 
+                        aes(x = long, y = lat, group = group), 
+                        col = "red", fill = NA)
+
+
+ward8_blocks_fortify <- broom::tidy(ward8_blocks)
+ward8_blocks$id <- row.names(ward8_blocks)
+ward8_blocks_fortify <- left_join(ward8_blocks_fortify, ward8_blocks@data)
+
+ggmap(get_map(c(left = -93.294, bottom = 44.908, 
+                            right = -93.244, top = 44.9521), source = "stamen")) + 
+geom_point(data = knots_and_other_stuff8, aes(x=lon, y=lat)) + 
+  geom_polygon(data= ward8_blocks_fortify, 
+                        aes(x = long, y = lat, group = group), 
+                        col = "blue", fill = NA, linewidth = 0.8) + 
+  labs(title = "Knots Subsetted to Ward 8") + 
+    theme(axis.text.x = element_blank(), axis.text.y = element_blank(), 
+        axis.ticks = element_blank(),
+        axis.title.y=element_blank(), axis.title.x=element_blank(),
+        plot.title = element_text(hjust = 0.5))
+```
+
+
+```{r}
+write.csv(
+  data.frame(lon=knots_and_other_stuff2$lon, 
+             lat=knots_and_other_stuff2$lat), 
+  "../../data/working/ward_8_blockgroups/90_knots.csv", 
+  row.names=FALSE
+)
+```
+

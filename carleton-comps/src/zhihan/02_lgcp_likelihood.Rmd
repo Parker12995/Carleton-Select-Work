@@ -1,0 +1,109 @@
+# LGCP likelihood in R
+
+```{r}
+library(fields)  # for rdist
+library(MASS)  # for mvrnorm
+```
+
+## Required inputs
+
+- Total area
+
+- Coordinates of observed points
+- Census variable values at observed points (computed using over function)
+
+- Coordinates of integration points
+- Census variable values at integration points (computed using over function)
+
+- Coordinates of knots
+
+TODO: can we walk through how the census variables
+TODO: how to deal with the NA values?
+
+```{r}
+area <- 149719331
+
+observed_pts <- read.csv("./lgcp_likelihood_inputs/observed_pts.csv")
+observed_pts_var <- read.csv("./lgcp_likelihood_inputs/observed_pts_var.csv")
+
+integration_pts <- read.csv("./lgcp_likelihood_inputs/1.csv")
+integration_pts_var <- read.csv("./lgcp_likelihood_inputs/1_var.csv")
+
+knots <- read.csv("./lgcp_likelihood_inputs/knots.csv")
+```
+
+```{r}
+sum(is.na(integration_pts_var))
+```
+
+```{r}
+sum(is.na(observed_pts_var))
+sum(is.na(integration_pts_var))
+```
+
+```{r}
+dim(observed_pts)
+dim(observed_pts_var)
+
+dim(integration_pts)
+dim(integration_pts_var)
+
+dim(knots)
+```
+
+## Likelihood calculation
+
+```{r}
+# ===== parameters =====
+
+# regression coefficients (to be estimated by MCMC)
+
+# TODO: use vectorization here
+
+beta0 <- 1
+other_betas <- rep(1, dim(observed_pts_var)[2])
+
+# GP parameters (to be estimated by MCMC)
+
+sigma <- 1
+phi <- 0.10
+
+kernel <- function(p1, p2, sigma, phi) {
+  sigma * exp(- rdist(p1, p2) / phi)
+}
+
+# ===== GP =====
+
+knots_cov <- kernel(knots, knots, sigma=sigma, phi=phi)
+observed_pts_vs_knots_cov <- kernel(observed_pts, knots, sigma=sigma, phi=phi)
+integration_pts_vs_knots_cov <- kernel(integration_pts, knots, sigma=sigma, phi=phi)
+
+gp_on_knots <- mvrnorm(1, mu=numeric(nrow(knots)), Sigma=knots_cov)
+gp_on_observed_pts <- observed_pts_vs_knots_cov %*% solve(knots_cov) %*% gp_on_knots
+gp_on_integration_pts <- integration_pts_vs_knots_cov %*% solve(knots_cov) %*% gp_on_knots
+
+# ===== likelihood function =====
+
+int <- (area / nrow(integration_pts)) * sum(beta0 + as.matrix(integration_pts_var) %*% other_betas + gp_on_integration_pts)
+
+sum(beta0 + as.matrix(observed_pts_var) %*% other_betas + gp_on_observed_pts, na.rm=T) - int
+
+# TODO: cleaning NA values for overlay to make sense? (could be because of missing coordinate values)
+# - outside of window (try plotting them)
+# TODO: when multiplying by area, the result is negative
+# TODO: try one integration point from each census track, then multiply value by answer
+```
+
+## Simulation study
+
+```{r}
+multiplier_1 <- c()
+multiplier_10 <- c()
+multiplier_20 <- c()
+```
+
+```{r}
+
+```
+
+

@@ -1,0 +1,291 @@
+---
+title: "NIMBLE code for LGCP"
+---
+
+```{r}
+library(nimble)
+library(ggplot2)
+library(fields)  # for rdist
+library(glue)
+library(dplyr)
+library(sf)
+library(sp)
+library(spatstat)
+```
+
+```{r}
+expcov <- nimbleFunction(run = function(dists = double(2), phi = double(0), sigma = double(0)) {
+    returnType(double(2))
+    n <- dim(dists)[1]
+    m <- dim(dists)[2]
+    # result <- matrix(nrow = n, ncol = m, init = FALSE)
+    sigma2 <- sigma*sigma
+    result <- sigma2*exp(-dists/phi)
+    # for(i in 1:n){
+    #   for(j in 1:m){
+    #     result[i, j] <- sigma2*exp(-dists[i,j]/phi)
+    #   }
+    # }
+    return(result)
+})
+```
+
+
+```{r}
+######################load data###########################################################################
+
+#bind in another script sim_points and the overlayed data below
+obs_pts_and_covs <- read.csv("../../../../../data/working/ward_9_blockgroups/use_of_force/obs_points_with_bg_level_cov.csv")
+#Suspicious Person (Question #2)
+# obs_pts_and_covs <- read.csv("../../../../../data/working/ward_9_blockgroups/use_of_force/obs_points_with_bg_level_cov.csv") %>% filter(Problem == "Suspicious Person")
+# obs_pts_and_covs <- read.csv("../../../../../data/working/ward_9_blockgroups/use_of_force/obs_points_with_bg_level_cov.csv") %>% filter(Problem != "Suspicious Person")
+
+#Obstruction of Justice (Question #3)
+# obs_pts_and_covs <- read.csv("../../../../../data/working/ward_9_blockgroups/use_of_force/obs_points_with_bg_level_cov.csv") %>% filter(PrimaryOffense == "OBSTRU")
+# obs_pts_and_covs <- read.csv("../../../../../data/working/ward_9_blockgroups/use_of_force/obs_points_with_bg_level_cov.csv") %>% filter(PrimaryOffense != "OBSTRU")
+
+#911 Call (Question #5)
+# obs_pts_and_covs <- read.csv("../../../../../data/working/ward_9_blockgroups/use_of_force/obs_points_with_bg_level_cov.csv") %>% filter(Is911Call == "Yes")
+# obs_pts_and_covs <- read.csv("../../../../../data/working/ward_9_blockgroups/use_of_force/obs_points_with_bg_level_cov.csv") %>% filter(Is911Call == "No")
+
+#George Floyd Protests (Question #6)
+#obs_pts_and_covs <- read.csv("../../../../../data/working/ward_9_blockgroups/use_of_force/obs_points_with_bg_level_cov.csv") %>% filter(between(ResponseDate, as.Date('2008/01/01 01:27:27+00'), as.Date('2020/05/25 20:00: 00+00')))
+#obs_pts_and_covs <- read.csv("../../../../../data/working/ward_9_blockgroups/use_of_force/obs_points_with_bg_level_cov.csv") %>% filter(between(ResponseDate, as.Date('2020/05/25 20:00: 00+00'), as.Date('2022/07/14 00:00: 00+00'))) # one week after sentencing of Derek Chauvin
+#obs_pts_and_covs <- read.csv("../../../../../data/working/ward_9_blockgroups/use_of_force/obs_points_with_bg_level_cov.csv") %>% filter(between(ResponseDate, as.Date('2022/07/14 00:00: 00+00'), as.Date('2022/12/31 23:59: 59+00')))
+
+sim_pts_and_covs <- read.csv("../../../../../data/working/ward_9_blockgroups/over_simpoints_cov_scalebyarea_mult8.csv")
+knots <- read.csv("../../../../../data/working/ward_9_blockgroups/71_knots.csv")
+load("../../../../../data/working/ward_9_blockgroups/Ward9_Blocks.Rdata")
+ward9_blocks.sf <- st_as_sf(ward9_blocks)
+for (i in 1:nrow(ward9_blocks.sf)) {
+  ward9_blocks.sf[i, 51] <- area(st_transform(st_union(ward9_blocks.sf[i, ]),crs = 6345))
+}
+```
+
+```{r}
+###
+### Jitter points so no exact location is repeated
+###
+#need to slightly jitter points that are duplicated
+dup_uof <- obs_pts_and_covs[which(duplicated(obs_pts_and_covs[,c("Y", "X")])),]
+obs_pts_and_covs <- obs_pts_and_covs[-which(duplicated(obs_pts_and_covs[,c("Y", "X")])),] #remove, to combine later
+
+set.seed(3)
+jitter_lat <- runif(n = nrow(dup_uof), 0.0001, 0.0005) #only goes to fifth decimal point
+jitter_lon <- runif(n = nrow(dup_uof), 0.0001, 0.0005) #only goes to fifth decimal point
+plot(dup_uof$X, dup_uof$Y)
+dup_uof$Y <- dup_uof$Y + jitter_lat
+dup_uof$X <- dup_uof$X + jitter_lon
+plot(dup_uof$X, dup_uof$Y)
+#combine after jittering
+obs_pts_and_covs <- rbind(obs_pts_and_covs, dup_uof) %>% as.data.frame()
+
+#clean up
+rm(dup_uof, jitter_lat, jitter_lon)
+```
+
+
+
+```{r}
+obs_pts_and_covs$perc_white <- obs_pts_and_covs$total_white/obs_pts_and_covs$total_pop
+obs_pts_and_covs$total_pop_norm <- obs_pts_and_covs$total_pop/max(obs_pts_and_covs$total_pop)
+
+sim_pts_and_covs$perc_white <- sim_pts_and_covs$total_white/sim_pts_and_covs$total_pop
+sim_pts_and_covs$total_pop_norm <- sim_pts_and_covs$total_pop/max(sim_pts_and_covs$total_pop)
+
+n_uof = nrow(obs_pts_and_covs)
+n_sim = nrow(sim_pts_and_covs)
+n_knots <- nrow(knots)
+
+covs <- as.matrix(obs_pts_and_covs[,c("perc_white", "perc_unemployed", "total_pop_norm")])
+sim_covs <- as.matrix(sim_pts_and_covs[,c("perc_white", "perc_unemployed", "total_pop_norm")])
+
+# distance matrices
+knots_dists <- rdist(knots, knots)
+observed_pts_vs_knots_dists <- rdist(obs_pts_and_covs[,1:2], knots)
+integration_pts_vs_knots_dists <- rdist(sim_pts_and_covs[,1:2], knots)
+```
+
+
+```{r}
+#standardize distance matrix and rescale area
+
+#check max distances
+max(knots_dists, observed_pts_vs_knots_dists, integration_pts_vs_knots_dists)
+
+#calculate max distance possible for distance matrix standardization
+max_dist <- dist(rbind(c(bbox(ward9_blocks)[1,1],
+                         bbox(ward9_blocks)[2,1]),
+                       c(bbox(ward9_blocks)[1,2],
+                         bbox(ward9_blocks)[2,2])))
+max_dist <- as.numeric(max_dist)
+
+#standardize all distance matrices
+knots_dists <- knots_dists/max_dist
+observed_pts_vs_knots_dists <- observed_pts_vs_knots_dists/max_dist
+integration_pts_vs_knots_dists <- integration_pts_vs_knots_dists/max_dist
+
+#check
+max(knots_dists, observed_pts_vs_knots_dists, integration_pts_vs_knots_dists)
+
+fix_phi <- 0.7
+
+#calculate area of the shapes
+area <- sum(ward9_blocks.sf[, 51]$V51)
+#standardize area
+area = sum(area/100000) #scaled area
+```
+
+
+```{r}
+code <- nimbleCode({
+  #priors
+  beta0 ~ dnorm(0, sd = 100)
+  beta1 ~ dnorm(0, sd = 100)
+  beta2 ~ dnorm(0, sd = 100)
+  beta3 ~ dnorm(0, sd = 100)
+  sigma   ~  dinvgamma(shape = 1, scale = 0.7)
+
+  #data portion  
+  XB[1:n_uof] <- beta0 + beta1*covs[,1] + beta2*covs[,2] + beta3*covs[,3] 
+  XB_int[1:n_sim] <- beta0 + beta1*sim_covs[,1] + beta2*sim_covs[,2] + beta3*sim_covs[,3] 
+  
+  #creating covariance/transformation matrices
+  knots_cov[1:n_knots, 1:n_knots] <- expcov(knots_dists[1:n_knots, 1:n_knots], phi = fix_phi, sigma= sigma)
+  observed_pts_vs_knots_cov[1:n_uof, 1:n_knots] <- expcov(observed_pts_vs_knots_dists[1:n_uof, 1:n_knots], phi = fix_phi, sigma= sigma)
+  integration_pts_vs_knots_cov[1:n_sim, 1:n_knots] <- expcov(integration_pts_vs_knots_dists[1:n_sim, 1:n_knots], phi = fix_phi, sigma= sigma)
+  
+  #transforming GP over integration points and data points
+  gp_on_knots[1:n_knots] ~ dmnorm(knots_mean[1:n_knots], cov=knots_cov[1:n_knots, 1:n_knots])
+  gp_on_observed_pts[1:n_uof] <- observed_pts_vs_knots_cov[1:n_uof, 1:n_knots] %*% inverse(knots_cov[1:n_knots, 1:n_knots]) %*% gp_on_knots[1:n_knots]
+  gp_on_integration_pts[1:n_sim] <- integration_pts_vs_knots_cov[1:n_sim, 1:n_knots] %*% inverse(knots_cov[1:n_knots, 1:n_knots]) %*% gp_on_knots[1:n_knots]
+  
+  integ <- (area / n_sim) * sum(exp(XB_int[1:n_sim] + gp_on_integration_pts[1:n_sim]))
+  })
+```
+
+```{r}
+Rmodel <- nimbleModel(
+  code, 
+  data = list(),
+  inits = list(
+    beta0 = 0,
+    beta1 = 0,
+    beta2 = 0,
+    beta3 = 0,
+    sigma = 1, 
+    gp_on_knots = numeric(n_knots)
+    #gp_on_observed_pts = numeric(n_uof),
+    #gp_on_integration_pts = numeric(n_sim)
+  ),
+  constants = list(
+    sim_covs = sim_covs, 
+    covs = covs, 
+    fix_phi = fix_phi,
+    area = area,
+    n_uof = n_uof, n_sim = n_sim,
+    knots_mean = numeric(n_knots),
+    knots_dists = knots_dists, observed_pts_vs_knots_dists = observed_pts_vs_knots_dists,
+    integration_pts_vs_knots_dists = integration_pts_vs_knots_dists,
+    n_knots = n_knots
+  )
+)
+```
+
+```{r}
+Rmodel$initializeInfo()
+```
+
+```{r}
+llFun <- nimbleFunction(
+  setup = function(model) { },
+  run = function() {
+    ll <- sum(model$XB + model$gp_on_observed_pts) - model$integ
+    returnType(double())
+    return(ll[1])
+  }
+)
+
+RllFun <- llFun(Rmodel)
+
+mcmcConf <- configureMCMC(Rmodel, nodes = NULL, monitors = c("beta0", "beta1", "beta2", "beta3", "sigma", "gp_on_knots"))
+# this ensures that gp_on_knots is monitored alongside of other nodes, but also makes sure that no default samplers are assigned
+
+# adding custom samplers
+
+mcmcConf$addSampler(target = "beta0", type = "RW_llFunction",
+                    control = list(llFunction = RllFun, includesTarget = FALSE))
+
+mcmcConf$addSampler(target = "beta1", type = "RW_llFunction",
+                    control = list(llFunction = RllFun, includesTarget = FALSE))
+
+mcmcConf$addSampler(target = "beta2", type = "RW_llFunction",
+                    control = list(llFunction = RllFun, includesTarget = FALSE))
+
+mcmcConf$addSampler(target = "beta3", type = "RW_llFunction",
+                    control = list(llFunction = RllFun, includesTarget = FALSE))
+
+mcmcConf$addSampler(target = "sigma", type = "RW_llFunction",
+                    control = list(llFunction = RllFun, includesTarget = FALSE))
+
+mcmcConf$addSampler(target = "gp_on_knots", type = "RW_llFunction_block",
+                    control = list(llFunction = RllFun, includesTarget = FALSE))
+
+mcmcConf$printSamplers() 
+
+Rmcmc <- buildMCMC(mcmcConf)
+
+comp_model <- compileNimble(Rmodel) 
+comp_MCMC <- compileNimble(Rmcmc)
+```
+
+```{r}
+mcmcConf$getUnsampledNodes()
+```
+
+```{r}
+#samples_bg_prop_pts <- runMCMC(Rmcmc, 500000)
+comp_MCMC$run(niter = 500000)
+#comp_MCMC$run(niter = 5000)
+
+samples_bg_prop_pts_no3 <- as.matrix(comp_MCMC$mvSamples) %>% as.data.frame()
+```
+
+```{r}
+colMeans(samples_bg_prop_pts_no3)
+```
+
+```{r}
+n_samples <- nrow(samples_bg_prop_pts_no3)
+
+ggplot() + 
+  geom_line(aes(x=1:n_samples, y=samples_bg_prop_pts_no3[, 1]), color="red") + 
+  geom_line(aes(x=1:n_samples, y=samples_bg_prop_pts_no3[, 2]), color="green") + 
+  geom_line(aes(x=1:n_samples, y=samples_bg_prop_pts_no3[, 3]), color="blue") +
+  geom_line(aes(x=1:n_samples, y=samples_bg_prop_pts_no3[, 4]), color="purple") +
+  xlab("Number of samples") + 
+  ylab("Value")
+
+ggplot() + 
+  geom_line(aes(x=1:n_samples, y=samples_bg_prop_pts_no3[, 5]), color="red") +
+  geom_line(aes(x=1:n_samples, y=samples_bg_prop_pts_no3[, 6]), color="green") +
+  geom_line(aes(x=1:n_samples, y=samples_bg_prop_pts_no3[, 7]), color="blue") +
+  xlab("Number of samples") + 
+  ylab("Value")
+
+ggplot() + geom_line(aes(x=1:n_samples, y=samples_bg_prop_pts_no3[, ncol(samples_bg_prop_pts_no3)]))
+
+ggplot() + 
+  geom_density(data = NULL, aes(x = samples_bg_prop_pts_no3$sigma), color = "red") + 
+  geom_density(data = NULL, aes(x = rinvgamma(1000, shape = 1, scale = 0.7)))
+```
+
+```{r}
+effectiveSize(samples_bg_prop_pts_no3)
+```
+
+```{r}
+save(samples_bg_prop_pts_no3,
+     file = "../../../../../data/working/ward_9_blockgroups/samples_bg_prop_pts_no3.Rdata")
+```
+

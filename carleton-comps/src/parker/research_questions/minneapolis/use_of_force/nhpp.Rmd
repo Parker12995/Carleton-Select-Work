@@ -1,0 +1,138 @@
+---
+title: "NIMBLE code for NHPP"
+---
+
+```{r}
+library(nimble)
+library(ggplot2)
+library(dplyr)
+```
+
+```{r}
+######################load data###########################################################################
+
+#bind in another script sim_points and the overlayed data below
+sim_points <- read.csv("../../data/working/integration_points/494points_coord.csv")
+over_sim_points_census <- read.csv("../../data/working/over_sim_points_census.csv")
+over_uof_census <- read.csv("../../data/working/overlay_pointdatasets_censusdata/over_uof_census.csv")
+minn_tracts.sf <- read.csv("../../data/working/minn_tracts_sf.csv")
+knots <- read.csv("../../src/zhihan/lgcp_likelihood_inputs/knots.csv")
+#add original uof information to over_uof_census in another script as well
+
+# over_uof_census <- sample_n(over_uof_census, 100)
+
+over_uof_census$perc_white <- over_uof_census$total_white/over_uof_census$total_pop
+over_uof_census$perc_poverty <- over_uof_census$below_pov_level/over_uof_census$total_pop
+
+over_sim_points_census$perc_white <- over_sim_points_census$total_white/over_sim_points_census$total_pop
+over_sim_points_census$perc_poverty <- over_sim_points_census$below_pov_level/over_sim_points_census$total_pop
+
+n_uof = nrow(over_uof_census)
+n_sim = nrow(sim_points)
+
+sim_covs <- as.matrix(over_sim_points_census[,c("perc_white", "perc_poverty", "total_pop")])
+covs <- as.matrix(over_uof_census[,c("perc_white", "perc_poverty", "total_pop")])
+```
+
+```{r}
+dim(covs)
+```
+
+
+```{r}
+code <- nimbleCode({
+  
+  beta0 ~ dnorm(0, sd = 100)
+  beta1 ~ dnorm(0, sd = 100)
+  beta2 ~ dnorm(0, sd = 100)
+  beta3 ~ dnorm(0, sd = 100)
+  
+  XB[1:n_uof] <- beta0 + beta1*covs[,1] + beta2*covs[,2] + beta3*covs[,3]
+  XB_int[1:n_sim] <- beta0 + beta1*sim_covs[,1] + beta2*sim_covs[,2] + beta3*sim_covs[,3]
+  
+  int <- (area / n_sim) * sum(exp(XB_int[1:n_sim]))
+
+  })
+```
+
+```{r}
+Rmodel <- nimbleModel(
+  code, 
+  data = list(),
+  inits = list(
+    beta0 = 0,
+    beta1 = 0,
+    beta2 = 0,
+    beta3 = 0
+  ),
+  constants = list(
+    sim_covs = sim_covs, 
+    covs = covs, 
+    area = sum(minn_tracts.sf$tract_area),
+    n_uof = n_uof, 
+    n_sim = n_sim
+  )
+)
+```
+
+```{r}
+Rmodel$initializeInfo()
+```
+
+```{r}
+llFun <- nimbleFunction(
+  setup = function(model) { },
+  run = function() {
+    ll <- sum(model$XB) - model$int
+    returnType(double())
+    return(ll[1])
+  }
+)
+
+RllFun <- llFun(Rmodel)
+
+mcmcConf <- configureMCMC(Rmodel, nodes = NULL)
+
+mcmcConf$addSampler(target = "beta0", type = "RW_llFunction",
+                    control = list(llFunction = RllFun, includesTarget = FALSE))
+mcmcConf$addSampler(target = "beta1", type = "RW_llFunction",
+                    control = list(llFunction = RllFun, includesTarget = FALSE))
+mcmcConf$addSampler(target = "beta2", type = "RW_llFunction",
+                    control = list(llFunction = RllFun, includesTarget = FALSE))
+mcmcConf$addSampler(target = "beta3", type = "RW_llFunction",
+                    control = list(llFunction = RllFun, includesTarget = FALSE))
+
+mcmcConf$printSamplers()
+
+Rmcmc <- buildMCMC(mcmcConf)
+```
+
+```{r}
+mcmcConf$getUnsampledNodes()
+```
+
+```{r}
+set.seed(42)
+samples <- runMCMC(Rmcmc, 10000)
+```
+
+```{r}
+n_samples <- nrow(samples)
+
+ggplot() + 
+  geom_line(aes(x=1:n_samples, y=samples[, 1]), color="red") + 
+  geom_line(aes(x=1:n_samples, y=samples[, 2]), color="green") + 
+  geom_line(aes(x=1:n_samples, y=samples[, 3]), color="blue") +
+  geom_line(aes(x=1:n_samples, y=samples[, 4]), color="purple") +
+  xlab("Number of samples") + 
+  ylab("Value")
+```
+
+```{r}
+samples_df <- data.frame(samples)
+write.csv(samples_df, "nhpp_samples.csv", row.names = F)
+```
+
+```{r}
+effectiveSize(read.csv("nhpp_samples.csv"))
+```

@@ -1,0 +1,301 @@
+---
+title: "NIMBLE code for LGCP"
+---
+
+```{r}
+set.seed(42)
+```
+
+```{r}
+library(nimble)
+library(ggplot2)
+library(fields)  # for rdist
+library(glue)
+library(dplyr)
+library(sf)
+library(sp)
+library(spatstat)
+library(reshape2)
+```
+
+```{r}
+expcov <- nimbleFunction(run = function(dists = double(2), phi = double(0), sigma = double(0)) {
+
+    returnType(double(2))
+
+    n <- dim(dists)[1]
+
+    m <- dim(dists)[2]
+
+    sigma2 <- sigma*sigma
+
+    result <- sigma2*exp(-dists/phi)
+
+    return(result)
+
+})
+```
+
+```{r}
+obs_pts <- read.csv("simulated_lgcp_1_0d1_0d1.csv")[, c(2, 3)]
+
+knots_xs <- seq(from = -10, to = 10, length.out = 5)
+knots_ys <- seq(from = -10, to = 10, length.out = 5)
+knots <- expand.grid(knots_xs, knots_ys)
+colnames(knots) <- c("x", "y")
+
+int_xs <- runif(100, min=-10, max=10)
+int_ys <- runif(100, min=-10, max=10)
+int_pts <- data.frame(cbind(int_xs, int_ys))
+colnames(int_pts) <- c("x", "y")
+```
+
+```{r}
+plot(knots, col="red")
+points(obs_pts)
+```
+
+```{r}
+n_uof = nrow(obs_pts)
+n_sim = nrow(int_pts)
+n_knots <- nrow(knots)
+
+covs <- as.matrix(obs_pts)
+sim_covs <- as.matrix(int_pts)  # in this case, the locations themselves are the covariates
+
+# distance matrices
+knots_dists <- rdist(knots, knots)
+observed_pts_vs_knots_dists <- rdist(obs_pts, knots)
+integration_pts_vs_knots_dists <- rdist(int_pts, knots)
+```
+
+```{r}
+code <- nimbleCode({
+  
+  beta0 ~ dnorm(0, sd = 10)
+  beta1 ~ dnorm(0, sd = 10)
+  beta2 ~ dnorm(0, sd = 10)
+  sigma ~ dinvgamma(1, 1)
+  
+  XB[1:n_uof] <- beta0 + beta1*covs[1:n_uof,1] + beta2*covs[1:n_uof,2]
+  XB_int[1:n_sim] <- beta0 + beta1*sim_covs[1:n_sim,1] + beta2*sim_covs[1:n_sim,2]
+  
+  knots_cov[1:n_knots, 1:n_knots] <- expcov(knots_dists[1:n_knots, 1:n_knots], phi=4, sigma=sigma)
+  observed_pts_vs_knots_cov[1:n_uof, 1:n_knots] <- expcov(observed_pts_vs_knots_dists[1:n_uof, 1:n_knots], phi=4, sigma=sigma)
+  integration_pts_vs_knots_cov[1:n_sim, 1:n_knots] <- expcov(integration_pts_vs_knots_dists[1:n_sim, 1:n_knots], phi=4, sigma=sigma)
+  
+  gp_on_knots_raw[1:n_knots] ~ dmnorm(knots_mean[1:n_knots], cov=knots_cov[1:n_knots, 1:n_knots])
+  gp_on_knots[1:n_knots] <- gp_on_knots_raw[1:n_knots] * sigma
+  gp_on_observed_pts[1:n_uof] <- observed_pts_vs_knots_cov[1:n_uof, 1:n_knots] %*% inverse(knots_cov[1:n_knots, 1:n_knots]) %*% asCol(gp_on_knots[1:n_knots])
+  gp_on_integration_pts[1:n_sim] <- integration_pts_vs_knots_cov[1:n_sim, 1:n_knots] %*% inverse(knots_cov[1:n_knots, 1:n_knots]) %*% asCol(gp_on_knots[1:n_knots])
+  
+  integ <- area * mean(exp(asCol(XB_int[1:n_sim]) + asCol(gp_on_integration_pts[1:n_sim])))
+  
+  ll <- sum(asCol(XB[1:n_uof]) + asCol(gp_on_observed_pts[1:n_uof])) - integ
+
+  })
+```
+
+```{r}
+Rmodel <- nimbleModel(
+  code, 
+  data = list(),
+  inits = list(
+    beta0 = 0,
+    beta1 = 0,
+    beta2 = 0,
+    sigma = 1,
+    gp_on_knots_raw = numeric(n_knots)
+  ),
+  constants = list(
+    sim_covs = sim_covs, 
+    covs = covs, 
+    area = 400,
+    n_uof = n_uof,
+    n_sim = n_sim,
+    knots_mean = numeric(n_knots),
+    knots_dists = knots_dists, 
+    observed_pts_vs_knots_dists = observed_pts_vs_knots_dists,
+    integration_pts_vs_knots_dists = integration_pts_vs_knots_dists,
+    n_knots = n_knots
+  )
+)
+```
+
+```{r}
+Rmodel$initializeInfo()
+```
+
+```{r}
+llFun <- nimbleFunction(
+  setup = function(model) { },
+  run = function() {
+    returnType(double())
+    return(model$ll[1] + model$getLogProb("beta0") + model$getLogProb("beta1") + model$getLogProb("sigma") + model$getLogProb("gp_on_knots_raw"))
+  }
+)
+
+RllFun <- llFun(Rmodel)
+
+#mcmcConf <- configureMCMC(Rmodel, nodes = NULL, monitors = c("beta0", "beta1", "beta2", "gp_on_knots_raw", "sigma"))
+# this ensures that gp_on_knots is monitored alongside of other nodes, but also makes sure that no default samplers are assigned
+
+# adding custom samplers
+
+mcmcConf <- configureMCMC(Rmodel, nodes=NULL, monitors = c("beta0", "beta1", "beta2", "gp_on_knots_raw", "sigma", "ll"))
+
+mcmcConf$addSampler(
+  target = c("beta0", "beta1", "beta2", "gp_on_knots_raw", "sigma"),
+  type = "RW_llFunction_block",
+  control = list(llFunction = RllFun, includesTarget = F)
+)
+
+# mcmcConf$addSampler(target = "beta0", type = "RW_llFunction",
+#                     control = list(llFunction = RllFun, includesTarget = FALSE))
+# 
+# mcmcConf$addSampler(target = "beta1", type = "RW_llFunction",
+#                     control = list(llFunction = RllFun, includesTarget = FALSE))
+# 
+# mcmcConf$addSampler(target = "beta2", type = "RW_llFunction",
+#                     control = list(llFunction = RllFun, includesTarget = FALSE))
+
+# mcmcConf$addSampler(target = "sigma", type = "RW_llFunction",
+#                     control = list(llFunction = RllFun, includesTarget = FALSE))
+
+# mcmcConf$addSampler(target = "gp_on_knots_raw", type = "RW_llFunction_block",
+#                     control = list(llFunction = RllFun, includesTarget = FALSE))
+
+mcmcConf$printSamplers() 
+
+Rmcmc <- buildMCMC(mcmcConf)
+
+comp_model <- compileNimble(Rmodel)
+comp_MCMC <- compileNimble(Rmcmc)
+```
+
+```{r}
+# mcmcConf$getUnsampledNodes()
+```
+
+```{r}
+<<<<<<< HEAD
+comp_MCMC$run(niter = 10000 * 100)
+=======
+comp_MCMC$run(niter = 300000)
+>>>>>>> d3ffc2661e98a4e31ba358a36afbc3ecd665c32b
+```
+
+```{r}
+samples <- as.matrix(comp_MCMC$mvSamples) %>% as.data.frame()
+```
+
+```{r}
+colMeans(samples)
+```
+
+```{r}
+n_samples <- nrow(samples)
+
+ggplot() + geom_line(aes(x=1:n_samples, y=samples[, ncol(samples) - 1]), color="red")
+
+ggplot() + 
+  geom_line(aes(x=1:n_samples, y=samples[, 1]), color="red") + 
+  geom_line(aes(x=1:n_samples, y=samples[, 2]), color="green") + 
+  geom_line(aes(x=1:n_samples, y=samples[, 3]), color="blue") +
+  xlab("Number of samples") + 
+  ylab("Value")
+
+<<<<<<< HEAD
+library(reshape2)
+melted_samples <- melt(cbind(1:n_samples, samples[, 4:8]), id.vars="1:n_samples")
+=======
+melted_samples <- melt(cbind(1:n_samples, samples[, 4:14]), id.vars="1:n_samples")
+>>>>>>> d3ffc2661e98a4e31ba358a36afbc3ecd665c32b
+colnames(melted_samples)[1] <- "index"
+
+ggplot() +
+  geom_line(data=melted_samples, aes(x=index, y=value, color=variable)) +
+  xlab("Number of samples") +
+  ylab("Value") +
+  theme(legend.position="none")
+
+ggplot() + geom_line(aes(x=1:n_samples, y=samples[, ncol(samples)]))
+```
+
+```{r}
+library(coda)
+effectiveSize(samples)
+```
+
+
+```{r}
+samples <- samples[200000:300000, ]
+```
+
+
+```{r}
+library(invgamma)
+xs = seq(0, 10, length.out=100)
+ggplot() + 
+  geom_density(data=NULL, aes(x=samples[, ncol(samples)])) + 
+  geom_line(data=NULL, aes(x=xs, y=dunif(xs, 0, 10)), color="red")
+```
+
+```{r}
+covs_knots <- knots
+covs_knots <- cbind(rep(1, nrow(covs_knots)), covs_knots)
+
+beta_means <- colMeans(samples[,1:3])
+gp_means <- colMeans(samples[,4:(ncol(samples)-2)])
+
+log_intensities_no_gp <- as.matrix(covs_knots) %*% as.matrix(beta_means)
+log_intensities <- as.matrix(covs_knots) %*% as.matrix(beta_means) + gp_means
+log_intensities_exp <- exp(log_intensities)
+
+length(log_intensities)
+```
+
+```{r}
+ggplot() + 
+  geom_density2d_filled(data=obs_pts, aes(x=x, y=y)) 
+```
+
+```{r}
+ggplot() + 
+<<<<<<< HEAD
+  geom_point(data=as.data.frame(knots), aes(x = x, y = y, color = log_intensities_exp), size=18, shape=15) + 
+  geom_point(data=obs_pts, aes(x=x, y=y), size=2, shape=1, color="white") +
+=======
+  geom_point(data=as.data.frame(knots), aes(x = x, y = y, color = log_intensities_no_gp), size=18, shape=15) + 
+  geom_point(data=obs_pts, aes(x=x, y=y), size=2, shape=1, color="black") +
+  scale_color_viridis()
+```
+
+```{r}
+ggplot() + 
+  geom_point(data=as.data.frame(knots), aes(x = x, y = y, color = log_intensities), size=18, shape=15) + 
+  geom_point(data=obs_pts, aes(x=x, y=y), size=2, shape=1, color="black") +
+>>>>>>> d3ffc2661e98a4e31ba358a36afbc3ecd665c32b
+  scale_color_viridis()
+```
+
+
+```{r}
+redwood
+```
+
+```{r}
+redwood <- ppp(obs_pts[, 1], obs_pts[, 2], owin(c(-10, 10), c(-10, 10)))
+```
+
+```{r}
+plot(redwood)
+```
+
+```{r}
+fit <- kppm(redwood ~ x + y, "LGCP", scale=1)
+```
+
+```{r}
+fit
+```

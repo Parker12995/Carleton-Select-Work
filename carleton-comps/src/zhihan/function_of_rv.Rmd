@@ -1,0 +1,41 @@
+---
+title: "Untitled"
+author: "Zhihan Yang"
+date: "2023-04-11"
+output: html_document
+---
+
+```{r}
+code <- nimbleCode({
+p ~ dunif(0, 1)
+y ~ dbin(p, n)
+y2 <- y * 1
+})
+Rmodel <- nimbleModel(code, data = list(y2=300), inits = list(p=0.5, n=1000))
+llFun <- nimbleFunction(
+setup = function(model) { },
+run = function() {
+y3 <- model$y2
+p <- model$p
+n <- model$n
+ll <- lfactorial(n) - lfactorial(y3) - lfactorial(n-y3) + y3 * log(p) + (n-y3) * log(1-p)
+returnType(double())
+return(ll[1])
+}
+)
+RllFun <- llFun(Rmodel)
+mcmcConf <- configureMCMC(Rmodel, nodes = NULL)
+mcmcConf$addSampler(target = "p", type = "RW_llFunction",
+control = list(llFunction = RllFun, includesTarget = FALSE))
+Rmcmc <- buildMCMC(mcmcConf)
+#comp_model <- compileNimble(Rmodel) 
+#comp_MCMC <- compileNimble(Rmcmc)
+```
+
+```{r}
+samples <- runMCMC(Rmcmc, 1000)
+```
+
+```{r}
+plot(samples, type="l")
+```

@@ -1,0 +1,61 @@
+
+```{r}
+library(nimble)
+```
+
+
+```{r}
+matrix(c(1, 0.9, 0.9, 1),nrow=2,ncol=2,byrow=TRUE)
+```
+
+```{r}
+code <- nimbleCode({
+  p ~ dunif(0, 1)
+  y <- p*p * n
+  # n <- 1
+  # y ~ dbin(p, n)
+  gp_prior_over_knots[1:num_knots] ~ dmnorm(mean[1:num_knots], cov=cov[1:num_knots, 1:num_knots])
+  gp_prior_over_observed_pts <- f(gp_prior_over_knots)
+  gp_prior_over_integration_pts <- f(gp_prior_over_knots)
+})
+# all variables passed in through nimbleModel should be used or defined
+
+cov_for_knots <- matrix(c(1, 0.9, 0.9, 1),nrow=2,ncol=2,byrow=TRUE)
+Rmodel <- nimbleModel(code, data = list(y=3, mean=c(0, 0), cov=cov_for_knots), inits = list(p=0.5, n=10))
+
+llFun <- nimbleFunction(
+  setup = function(model) { },
+  run = function() {
+    y <- model$y
+    p <- model$p
+    n <- model$n
+    ll <- lfactorial(n) - lfactorial(y) - lfactorial(n-y) +
+    y * log(p) + (n-y) * log(1-p)
+    returnType(double())
+    return(ll[1])
+  }
+)
+
+RllFun <- llFun(Rmodel)
+mcmcConf <- configureMCMC(Rmodel, nodes = NULL)
+mcmcConf$addSampler(target = "p", type = "RW_llFunction", control = list(llFunction = RllFun, includesTarget = F))
+mcmcConf$addSampler(target = "noise[1]", type = "RW_llFunction", control = list(llFunction = RllFun, includesTarget = F))
+mcmcConf$addSampler(target = "noise[2]", type = "RW_llFunction", control = list(llFunction = RllFun, includesTarget = F))
+mcmcConf$printSamplers()
+Rmcmc <- buildMCMC(mcmcConf)
+samples <- runMCMC(Rmcmc, 1000)
+```
+
+```{r}
+col(samples)
+```
+
+```{r}
+library(ggplot2)
+```
+
+
+```{r}
+ggplot() + geom_point(aes(x=samples[, 1], y=samples[, 2])) + xlim(-3, 3) + ylim(-3, 3)
+```
+

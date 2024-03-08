@@ -1,0 +1,12 @@
+INFO [2023-02-08 09:56:09] $x
+INFO [2023-02-08 09:56:09] list(force_2010_2022$CaseNumberNew, incidents_2010_2022$CaseNumber)
+INFO [2023-02-08 09:56:09] 
+INFO [2023-02-08 09:56:09] $category.names
+INFO [2023-02-08 09:56:09] c("Force (10-22) ", "Incidents (10-22)")
+INFO [2023-02-08 09:56:09] 
+INFO [2023-02-08 09:56:09] $filename
+INFO [2023-02-08 09:56:09] [1] "just_two.png"
+INFO [2023-02-08 09:56:09] 
+INFO [2023-02-08 09:56:09] $output
+INFO [2023-02-08 09:56:09] T
+INFO [2023-02-08 09:56:09] 

@@ -1,0 +1,161 @@
+---
+output:
+  pdf_document: default
+  html_document: default
+---
+
+## Packages
+
+```{r}
+library(ggplot2)
+library(dplyr)
+library(lubridate)
+```
+
+
+```{r}
+force_raw
+```
+
+## Load the datasets
+
+```{r}
+for (col in colnames(force_raw)) {
+  print(col)
+}
+```
+
+```{r}
+crime_raw <- read.csv("../../data/original/Crime_Data.csv")
+crime <- crime_raw %>%
+    filter(X != 0 & Y != 0)
+crime$Reported_Date <- ymd_hms(crime$Reported_Date)
+
+force_raw <- read.csv("../../data/original/Police_Use_of_Force.csv")
+force <- force_raw %>%
+    filter(X != 0 & Y != 0)
+force$ResponseDate <- ymd_hms(force$ResponseDate)
+
+incidents_2019 <- read.csv("../../data/original/Police Incidents/Police_Incidents_2019.csv")
+incidents_2020 <- read.csv("../../data/original/Police Incidents/Police_Incidents_2020.csv")
+incidents_2021 <- read.csv("../../data/original/Police Incidents/Police_Incidents_2021.csv")
+incidents_2022 <- read.csv("../../data/original/Police Incidents/Police_Incidents_2022.csv")
+
+dim(crime)
+dim(na.omit(crime))
+dim(force)
+dim(na.omit(force))
+dim(incidents_2019)
+```
+
+
+```{r}
+min(crime$Reported_Date)
+max(crime$Reported_Date)
+hist(crime$Reported_Date, breaks="month")
+```
+
+```{r}
+min(force$ResponseDate)
+max(force$ResponseDate)
+hist(force$ResponseDate, breaks="year")
+```
+
+## Understanding setdiff
+
+setdiff returns the elements in the first set that does not appear in the second one
+
+```{r}
+a <- c(1, 2, 3, 3, 4, 5)
+b <- c(2, 3, 4, 6)
+
+setdiff(a, b)
+intersect(a, b)
+
+length(c(setdiff(a, b), intersect(a, b))) / length(a)
+length(c(setdiff(a, b), intersect(a, b))) / length(unique(a))
+```
+
+## Why compare both use of force data and incident data to crime data
+
+Crime data puts case numbers in two formats (two variables) with one format matching the use of force data and one format matching the crime data.
+
+## The uniqueness problem
+
+```{r}
+# crime %>%
+#     filter(Case_Number %in% setdiff(crime$Case_Number, force$CaseNumber)) %>%
+#     ggplot() + 
+#     geom_point(aes(x=X, y=Y))
+```
+
+```{r}
+length(unique(crime$Case_Number)) / length(crime$Case_Number)
+length(unique(force$CaseNumber)) / length(force$CaseNumber)
+```
+
+```{r}
+# table(force$CaseNumber)
+```
+
+```{r}
+force %>%
+  filter(CaseNumber == "08-031711")
+```
+
+```{r}
+force %>%
+  filter(CaseNumber == "08-025965")
+```
+
+TODO: for the same case number, does the location change?
+TODO: for the same case number, does the problem change?
+
+## Comparing crime and use of force data
+
+```{r}
+length(
+    intersect(crime$Case_Number, force$CaseNumber)
+) / length(unique(crime$Case_Number))
+```
+
+```{r}
+length(
+    setdiff(crime$Case_Number, force$CaseNumber)
+) / length(unique(crime$Case_Number))
+```
+
+```{r}
+length(
+    intersect(force$CaseNumber, crime$Case_Number)
+) / length(unique(force$CaseNumber))
+```
+
+```{r}
+force_subset <- force %>% 
+  filter(ResponseDate > ymd("2018-12-31"))
+```
+
+```{r}
+length(
+    intersect(force_subset$CaseNumber, crime$Case_Number)
+) / length(unique(force_subset$CaseNumber))
+```
+
+## Comparing crime data and incidents data
+
+TODO: chance that incidents data is very related to use of force, try matching the two
+
+```{r}
+incidents_caseNumber <- c(
+    incidents_2019$caseNumber,
+    incidents_2020$caseNumber,
+    incidents_2021$caseNumber, 
+    incidents_2022$caseNumber
+    )
+length(intersect(incidents_caseNumber, crime$Case_NumberAlt)) / length(unique(incidents_caseNumber))
+length(intersect(crime$Case_NumberAlt, incidents_caseNumber)) / length(unique(crime$Case_NumberAlt))
+```
+
+TODO:
+- How did they record it? What did it represent

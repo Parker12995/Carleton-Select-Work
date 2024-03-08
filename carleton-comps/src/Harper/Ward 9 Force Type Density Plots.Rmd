@@ -1,0 +1,194 @@
+---
+title: "Ward 9 Force Type Density Plots"
+output: html_document
+date: "2023-04-05"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(ggmap)
+library(sf)
+library(sp)
+```
+
+```{r}
+Crime_Data <- read_csv("../../data/original/Crime_Data.csv")
+dim(Crime_Data)
+Police_Force <- read_csv("../../data/original/Police_Use_of_Force.csv")
+Police_Incidents <- read_csv("../../data/working/Police_Incidents.csv")
+
+```
+
+```{r}
+ward9_map <- ggmap(get_map(c(left = -93.28, bottom = 44.933, 
+                         right = -93.227, top = 44.963), source = "stamen"))
+
+mn_wards <- st_read("../../data/original/City_Council_Wards/WARDS.shp") 
+
+ward9 <-st_crop(mn_wards, xmin = -93.28, xmax = -93.227, ymin = 44.933, ymax = 44.963) %>%
+  as_Spatial()
+```
+
+```{r}
+#Police Use of Force Density Map
+ward9_map +
+  stat_density_2d(data = Police_Force, aes(x=X, y=Y,fill = ..level..), geom = "polygon", alpha = .5) +
+  geom_hline(yintercept = 44.9483, size = 1.5, color = "blue") +
+  geom_polygon(data= ward9, 
+                        aes(x = long, y = lat, group = group), 
+                        fill = NA, col = "black", size = 1) +
+  scale_fill_gradient2(low = "yellow", mid = "red", high = "purple",midpoint = 1250) +
+  labs(title = "Police Use of Force Events Density Map")
+```
+
+
+```{r}
+#Suspicious Person and Suspicious Vehicle
+suspicious_problem_force <- Police_Force %>%
+  filter(
+    str_detect(Problem, "Suspicious Person") == TRUE, X < 0)
+
+no_suspicious_problem_force <- Police_Force %>%
+  filter(
+    str_detect(Problem, "Suspicious Person") == FALSE, X < 0)
+
+suspicious_vehicle_force <- Police_Force %>%
+  filter(
+    str_detect(Problem, "Suspicious Vehicle") == TRUE, X < 0)
+
+load("../../data/working/ward_9_blockgroups/Ward9_Blocks.Rdata")
+polygons <- as(ward9_blocks, "SpatialPolygons")
+poly_one <- st_transform(st_union(st_as_sf(polygons)), crs=CRS("+proj=longlat +datum=NAD83 +no_defs"))
+ward9_blocks_one <- poly_one %>% as_Spatial()
+
+proj4string(ward9_blocks_one) #check projection
+ward9_one_bg_tidy <- broom::tidy(ward9_blocks_one)
+ward9_blocks_one$id <- row.names(ward9_blocks_one)
+
+
+#Density plot for suspicious persons based on police force data
+ward9_map +
+    stat_density_2d(data = no_suspicious_problem_force, aes(x=X, y=Y, fill = ..level..), geom = "polygon", alpha = .5)+
+  geom_hline(yintercept = 44.9483, size = 1.5, color = "Yellow") + 
+   geom_polygon(data= ward9_blocks_one, 
+                        aes(x = long, y = lat, group = group), 
+                        fill = NA, col = "black", size = 1) +
+  scale_fill_gradient2(low = "yellow", mid = "red", high = "purple",midpoint = 1200) +
+  labs(title = "Suspicious Person in Use of Force Density Map") + 
+    theme(axis.title = element_blank(),
+        axis.text = element_blank(),
+        axis.ticks = element_blank()) 
+
+#Density plot for suspicious vehicle based on police force data
+ward9_map +
+    stat_density_2d(data = suspicious_vehicle_force, aes(x=X, y=Y, fill = ..level..), geom = "polygon", alpha = .5)+
+  geom_hline(yintercept = 44.9483, size = 1.5, color = "Yellow") + 
+   geom_polygon(data= ward9, 
+                        aes(x = long, y = lat, group = group), 
+                        fill = NA, col = "black", size = 1) +
+  scale_fill_gradient2(low = "yellow", mid = "red", high = "purple",midpoint = 1000) +
+  labs(title = "Suspicious Vehicle in Use of Force Density Map")
+  
+```
+
+```{r}
+#Other Problem Types
+
+Top_problem <- Police_Force %>%
+  group_by(Problem) %>%
+  summarize(count = n()) %>%
+  arrange(desc(count))
+
+#All other Problems
+other_problem <- Police_Force %>%
+  filter(str_detect(Problem, "Suspicious", negate = TRUE))
+
+ward9_map +
+    stat_density_2d(data = other_problem, aes(x=X, y=Y, fill = ..level..), geom = "polygon", alpha = .5)+
+  geom_hline(yintercept = 44.9483, size = 1.5, color = "Yellow") + 
+   geom_polygon(data= ward9, 
+                        aes(x = long, y = lat, group = group), 
+                        fill = NA, col = "black", size = 1) +
+  scale_fill_gradient2(low = "yellow", mid = "red", high = "purple",midpoint = 1000) +
+  labs(title = "NOT Suspicious Person/Vehicle Problems in Use of Force Density Map")
+
+#Fight
+fight_problem <- Police_Force %>%
+  filter(Problem == "Fight")
+
+ward9_map +
+    stat_density_2d(data = fight_problem, aes(x=X, y=Y, fill = ..level..), geom = "polygon", alpha = .5)+
+  geom_hline(yintercept = 44.9483, size = 1.5, color = "Yellow") + 
+   geom_polygon(data= ward9, 
+                        aes(x = long, y = lat, group = group), 
+                        fill = NA, col = "black", size = 1) +
+  scale_fill_gradient2(low = "yellow", mid = "red", high = "purple",midpoint = 1000) +
+  labs(title = "Problem as Fight in Use of Force Density Map")
+
+# Domestic Abuse-In Progress
+abuse_problem <- Police_Force %>%
+  filter(Problem == "Domestic Abuse-In Progress")
+
+ward9_map +
+    stat_density_2d(data = abuse_problem, aes(x=X, y=Y, fill = ..level..), geom = "polygon", alpha = .5)+
+  geom_hline(yintercept = 44.9483, size = 1.5, color = "Yellow") + 
+   geom_polygon(data= ward9, 
+                        aes(x = long, y = lat, group = group), 
+                        fill = NA, col = "black", size = 1) +
+  scale_fill_gradient2(low = "yellow", mid = "red", high = "purple",midpoint = 1000) +
+  labs(title = "Problem as Domestic Abuse-In Progress in Use of Force Density Map")
+
+#Disturbance
+disturbance_problem <- Police_Force %>%
+  filter(Problem == "Disturbance")
+
+ward9_map +
+    stat_density_2d(data = disturbance_problem, aes(x=X, y=Y, fill = ..level..), geom = "polygon", alpha = .5)+
+  geom_hline(yintercept = 44.9483, size = 1.5, color = "Yellow") + 
+   geom_polygon(data= ward9, 
+                        aes(x = long, y = lat, group = group), 
+                        fill = NA, col = "black", size = 1) +
+  scale_fill_gradient2(low = "yellow", mid = "red", high = "purple",midpoint = 850) +
+  labs(title = "Problem as Disturbance in Use of Force Density Map")
+
+#Unknown Trouble
+
+unknown_problem <- Police_Force %>%
+  filter(Problem == "Unknown Trouble")
+
+ward9_map +
+    stat_density_2d(data = unknown_problem, aes(x=X, y=Y, fill = ..level..), geom = "polygon", alpha = .5)+
+  geom_hline(yintercept = 44.9483, size = 1.5, color = "Yellow") + 
+   geom_polygon(data= ward9, 
+                        aes(x = long, y = lat, group = group), 
+                        fill = NA, col = "black", size = 1) +
+  scale_fill_gradient2(low = "yellow", mid = "red", high = "purple",midpoint = 700) +
+  labs(title = "Problem is Unknown Trouble in Use of Force Density Map")
+
+#Assault in Progress
+assault_problem <- Police_Force %>%
+  filter(Problem == "Assault in Progress")
+
+ward9_map +
+    stat_density_2d(data = assault_problem, aes(x=X, y=Y, fill = ..level..), geom = "polygon", alpha = .5)+
+  geom_hline(yintercept = 44.9483, size = 1.5, color = "Yellow") + 
+   geom_polygon(data= ward9, 
+                        aes(x = long, y = lat, group = group), 
+                        fill = NA, col = "black", size = 1) +
+  scale_fill_gradient2(low = "yellow", mid = "red", high = "purple",midpoint = 1000) +
+  labs(title = "Problem is Assault in Progress in Use of Force Density Map")
+
+#Traffic Law Enforcement
+traffic_problem <- Police_Force %>%
+  filter(Problem == "Traffic Law Enforcement")
+
+ward9_map +
+    stat_density_2d(data = traffic_problem, aes(x=X, y=Y, fill = ..level..), geom = "polygon", alpha = .5)+
+  geom_hline(yintercept = 44.9483, size = 1.5, color = "Yellow") + 
+   geom_polygon(data= ward9, 
+                        aes(x = long, y = lat, group = group), 
+                        fill = NA, col = "black", size = 1) +
+  scale_fill_gradient2(low = "yellow", mid = "red", high = "purple",midpoint = 1000) +
+  labs(title = "Problem as Traffic Law Enforcement in Use of Force Density Map")
+```

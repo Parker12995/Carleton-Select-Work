@@ -1,0 +1,176 @@
+---
+title: "1 dimensional GP"
+author: "Zhihan Yang"
+date: "2023-04-10"
+output: html_document
+---
+
+```{r}
+library(fields)
+library(MASS)
+library(nimble)
+library(coda)
+```
+
+# Sampling functions from GP
+
+```{r}
+sigma = 1
+phi = 0.1
+
+knots <- seq(0, 1, length.out = 10)
+observed_pts <- sort(runif(500, min=0, max=1))
+
+knots_D <- rdist(knots, knots)
+observed_pts_vs_knots_D <- rdist(observed_pts, knots)
+observed_pts_D <- rdist(observed_pts, observed_pts)
+
+observed_pts_cov <- sigma^2 * exp(-observed_pts_D/phi)
+
+y <- mvrnorm(mu=numeric(500), Sigma=observed_pts_cov)
+
+plot(observed_pts, y, type="l")
+points(observed_pts, y)
+```
+
+# Inference
+
+```{r}
+expcov <- nimbleFunction(run = function(dists = double(2), phi = double(0), sigma = double(0)) {
+    returnType(double(2))
+    n <- dim(dists)[1]
+    m <- dim(dists)[2]
+    # result <- matrix(nrow = n, ncol = m, init = FALSE)
+    sigma2 <- sigma*sigma
+    result <- sigma2*exp(-dists/phi)
+    # for(i in 1:n){
+    #   for(j in 1:m){
+    #     result[i, j] <- sigma2*exp(-dists[i,j]/phi)
+    #   }
+    # }
+    return(result)
+})
+```
+
+```{r}
+code <- nimbleCode({
+  
+  sigma ~ dunif(0, 10)
+  
+  knots_cov[1:n_knots, 1:n_knots] <- sigma^2 * exp(-knots_D[1:n_knots, 1:n_knots] / 0.1)
+  observed_pts_vs_knots_cov[1:n_obs, 1:n_knots] <- sigma^2 * exp(-observed_pts_vs_knots_D[1:n_obs, 1:n_knots] / 0.1)
+  
+  gp_on_knots[1:n_knots] ~ dmnorm(mean_on_knots[1:n_knots], cov=knots_cov[1:n_knots, 1:n_knots])
+  
+  #gp_on_observed_pts[1:n_obs] <- observed_pts_vs_knots_cov[1:n_obs, 1:n_knots] %*% inverse(knots_cov[1:n_knots, 1:n_knots]) %*% gp_on_knots[1:n_knots]
+  # TODO: try adding likelihood function 
+
+  mean_on_observed_pts[1:n_obs] <- observed_pts_vs_knots_cov[1:n_obs, 1:n_knots] %*% inverse(knots_cov[1:n_knots, 1:n_knots]) %*% gp_on_knots[1:n_knots]
+  observed_pts_cov[1:n_obs, 1:n_obs] <- sigma^2 * exp(-observed_pts_D[1:n_obs, 1:n_obs] / 0.1)
+  conditional_cov[1:n_obs, 1:n_obs] <- observed_pts_cov[1:n_obs, 1:n_obs] - observed_pts_vs_knots_cov[1:n_obs, 1:n_knots] %*% inverse(knots_cov[1:n_knots, 1:n_knots]) %*% t(observed_pts_vs_knots_cov[1:n_obs, 1:n_knots])
+  
+  gp_on_observed_pts[1:n_obs] ~ dmnorm(mean_on_observed_pts[1:n_obs], cov=conditional_cov[1:n_obs, 1:n_obs])
+  
+})
+```
+
+```{r}
+code <- nimbleCode({
+  
+  sigma ~ dunif(0, 10)
+  
+  knots_cov[1:n_knots, 1:n_knots] <- expcov(knots_D[1:n_knots, 1:n_knots], phi=0.1, sigma=sigma)
+  observed_pts_vs_knots_cov[1:n_obs, 1:n_knots] <- expcov(observed_pts_vs_knots_D[1:n_obs, 1:n_knots], phi=0.1, sigma=sigma)
+  
+  gp_on_knots[1:n_knots] ~ dmnorm(mean_on_knots[1:n_knots], cov=knots_cov[1:n_knots, 1:n_knots])
+  
+  #gp_on_observed_pts[1:n_obs] <- observed_pts_vs_knots_cov[1:n_obs, 1:n_knots] %*% inverse(knots_cov[1:n_knots, 1:n_knots]) %*% gp_on_knots[1:n_knots]
+  # TODO: try adding likelihood function 
+
+  mean_on_observed_pts[1:n_obs] <- observed_pts_vs_knots_cov[1:n_obs, 1:n_knots] %*% inverse(knots_cov[1:n_knots, 1:n_knots]) %*% gp_on_knots[1:n_knots]
+  observed_pts_cov[1:n_obs, 1:n_obs] <- expcov(observed_pts_D[1:n_obs, 1:n_obs], phi=0.1, sigma=sigma)
+  conditional_cov[1:n_obs, 1:n_obs] <- observed_pts_cov[1:n_obs, 1:n_obs] - observed_pts_vs_knots_cov[1:n_obs, 1:n_knots] %*% inverse(knots_cov[1:n_knots, 1:n_knots]) %*% t(observed_pts_vs_knots_cov[1:n_obs, 1:n_knots])
+  
+  gp_on_observed_pts[1:n_obs] ~ dmnorm(mean_on_observed_pts[1:n_obs], cov=conditional_cov[1:n_obs, 1:n_obs])
+  
+})
+```
+
+```{r}
+Rmodel <- nimbleModel(
+  code, 
+  data = list(
+    gp_on_observed_pts = y
+  ),
+  inits = list(
+    sigma = 1,
+    gp_on_knots = numeric(10)
+    #gp_on_observed_pts = numeric(500)
+  ),
+  constants = list(
+    n_knots = 10,
+    n_obs = 500,
+    mean_on_knots = numeric(10),
+    knots_D = knots_D,
+    observed_pts_vs_knots_D = observed_pts_vs_knots_D,
+    observed_pts_D = observed_pts_D
+  )
+)
+```
+
+```{r}
+Rmodel$initializeInfo()
+```
+
+```{r}
+mcmcConf <- configureMCMC(Rmodel, monitors=c("sigma", "gp_on_knots"))
+```
+
+```{r}
+mcmcConf$printSamplers()
+```
+
+```{r}
+#mcmcConf$addSampler(target = "gp_on_knots[1:10]", type = "RW_block", control = list(scale = 0.01))
+mcmcConf$printSamplers()
+```
+
+```{r}
+Rmcmc <- buildMCMC(mcmcConf)
+comp_model <- compileNimble(Rmodel) 
+comp_MCMC <- compileNimble(Rmcmc)
+```
+
+```{r}
+comp_MCMC$run(niter = 1000)
+```
+
+```{r}
+samples <- as.data.frame(as.matrix(comp_MCMC$mvSamples))
+dim(samples)
+```
+
+```{r}
+colMeans(samples)
+effectiveSize(samples)
+```
+
+```{r}
+plot(observed_pts, y, type="l")
+points(knots, colMeans(samples)[1:ncol(samples)-1])
+```
+
+```{r}
+plot(samples[, 1], type="l")
+plot(samples[, 2], type="l")
+plot(samples[, ncol(samples)], type="l")
+```
+
+
+
+
+
+
+
+
+

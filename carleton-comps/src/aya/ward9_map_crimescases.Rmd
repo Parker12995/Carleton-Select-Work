@@ -1,0 +1,549 @@
+---
+title: "ward9_map_cases"
+author: "Aya Klos"
+date: "2023-02-08"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+#start with clean environment
+rm(list = ls())
+
+### libraries
+library(tidyverse)
+library(sf)
+library(sp)
+library(ggmap)
+library(lubridate)
+```
+
+```{r}
+### load wards (Claire's wd)
+setwd("/Users/ayaklos/Documents/GitHub/carleton_comps_22_23/")
+
+#read in spatial data
+minn_wards <- st_read("./data/original/City_Council_Wards/WARDS.shp") %>%
+  as_Spatial()
+
+### plotting wards (same as census)
+plot(minn_wards)
+
+
+#plot with ggplot
+minn_map <- ggmap(get_map(c(left = -93.35, bottom = 44.88, 
+                            right = -93.18, top = 45.06), source = "stamen"))
+
+#plotting code from last time
+wards_fortify <- broom::tidy(minn_wards)
+minn_wards$id <- row.names(minn_wards)
+wards_fortify <- left_join(wards_fortify, minn_wards@data)
+
+#replot the shapefile
+minn_map + geom_polygon(data= wards_fortify, 
+                        aes(x = long, y = lat, group = group), 
+                        fill = NA, col = "black")
+
+#plot wards by ward number
+minn_map + geom_polygon(data= wards_fortify, 
+                        aes(x = long, y = lat, group = group,
+                            fill = BDNUM), 
+                        col = "black")
+
+
+# overlap point level dataset onto wards
+crime_data <- read.csv("./data/original/Crime_Data.csv")
+use_of_force_data <- read.csv("./data/original/Police_Use_of_Force.csv")
+use_of_force_data$Problem <- trimws(use_of_force_data$Problem)
+suspicious_persons_only.df <- use_of_force_data %>% filter(Problem == "Suspicious Person")
+crime_suspicious_persons.df <- crime_data %>% filter(Problem_Initial == "Suspicious Person (P)" | Problem_Initial == "Suspicious Person (P)~PD")
+  
+#make spatial object 
+sp_crime_data <- crime_data
+coordinates(sp_crime_data) <- ~X+Y
+
+sp_use_of_force_data <- use_of_force_data
+coordinates(sp_use_of_force_data) <- ~X+Y
+
+sp_sus_persons <- suspicious_persons_only.df
+coordinates(sp_sus_persons) <- ~X+Y
+
+sp_crime_sus_persons <- crime_suspicious_persons.df
+coordinates(sp_crime_sus_persons) <- ~X+Y
+
+#need to project these datasets to have the same projection
+proj4string(minn_wards) #check projection
+proj4string(sp_crime_data) <- CRS("+proj=longlat +datum=WGS84 +no_defs")
+proj4string(sp_use_of_force_data) <- CRS("+proj=longlat +datum=WGS84 +no_defs")
+proj4string(sp_sus_persons) <- CRS("+proj=longlat +datum=WGS84 +no_defs")
+proj4string(sp_crime_sus_persons) <- CRS("+proj=longlat +datum=WGS84 +no_defs")
+
+#transform the projection of the crime data to match the wards
+sp_crime_data <- spTransform(sp_crime_data, proj4string(minn_wards))
+sp_use_of_force_data <- spTransform(sp_use_of_force_data, proj4string(minn_wards))
+sp_sus_persons <- spTransform(sp_sus_persons, proj4string(minn_wards))
+sp_crime_sus_persons <- spTransform(sp_crime_sus_persons, proj4string(minn_wards))
+
+
+#overlay the two
+over_data <- over(sp_crime_data, minn_wards)
+over_data.2 <- over(sp_use_of_force_data, minn_wards)
+over_data.3 <- over(sp_sus_persons, minn_wards)
+over_data.4 <- over(sp_crime_sus_persons, minn_wards)
+
+#how many points are outside of these wards?
+length(which(is.na(over_data$FID))) #1611
+length(which(is.na(over_data.2$FID))) #1627
+length(which(is.na(over_data.3$FID))) #41
+length(which(is.na(over_data.4$FID))) #22
+
+#combine ward information with crime information
+crime_data_full <- cbind(crime_data, over_data)
+use_of_force_data_full <- cbind(use_of_force_data, over_data.2)
+sus_persons_data_full <- cbind(suspicious_persons_only.df, over_data.3)
+crime_sus_persons_data_full <- cbind(crime_suspicious_persons.df, over_data.4)
+
+#get count of events per ward 
+agg_data <- over_data %>% group_by(BDNUM) %>% tally() %>%
+  rename(num_crime = "n")
+agg_data.2 <- over_data.2 %>% group_by(BDNUM) %>% tally() %>%
+  rename(num_incident = "n")
+agg_data.3 <- over_data.3 %>% group_by(BDNUM) %>% tally() %>%
+  rename(num_sus_incident = "n")
+agg_data.4 <- over_data.4 %>% group_by(BDNUM) %>% tally() %>%
+  rename(num_crim_sus_incident = "n")
+
+wards_fortify <- left_join(wards_fortify, agg_data)
+wards_fortify.2 <- wards_fortify
+wards_fortify.2 <- left_join(wards_fortify.2, agg_data.2)
+wards_fortify.3 <- wards_fortify.2
+wards_fortify.3 <- left_join(wards_fortify.3, agg_data.3)
+wards_fortify.4 <- wards_fortify.3
+wards_fortify.4 <- left_join(wards_fortify.4, agg_data.4)
+
+#plot number of crimes by wards
+minn_map + geom_polygon(data= wards_fortify, 
+                        aes(x = long, y = lat, group = group,
+                            fill = num_crime), 
+                        col = "black") +
+  scale_fill_distiller(palette = "Spectral") +
+  labs(fill="Incidents")
+
+minn_map + geom_polygon(data= wards_fortify.2, 
+                        aes(x = long, y = lat, group = group,
+                            fill = num_incident), 
+                        col = "black") +
+  scale_fill_distiller(palette = "Spectral") +
+  labs(fill="Incidents")
+
+minn_map + geom_polygon(data= wards_fortify.3, 
+                        aes(x = long, y = lat, group = group,
+                            fill = num_sus_incident), 
+                        col = "black") +
+  scale_fill_distiller(palette = "Spectral") +
+  labs(fill="Incidents")
+
+minn_map + geom_polygon(data= wards_fortify.4, 
+                        aes(x = long, y = lat, group = group,
+                            fill = num_crim_sus_incident), 
+                        col = "black") +
+  scale_fill_distiller(palette = "Spectral") +
+  labs(fill="Incidents")
+
+
+#You can do basically the same thing with census tracts! 
+# The projections are actually a bit easier in that case.
+```
+
+```{r}
+#creating individual datasets for crime data by year
+crime_mod <- crime_data
+crime_mod$Occurred_Date <- as_datetime(crime_mod$Occurred_Date)
+crime_mod$Year <- year(crime_mod$Occurred_Date)
+
+crime.2010 <- crime_mod %>% filter(Year == 2010)
+crime.2011 <- crime_mod %>% filter(Year == 2011)
+crime.2012 <- crime_mod %>% filter(Year == 2012)
+crime.2013 <- crime_mod %>% filter(Year == 2013)
+crime.2014 <- crime_mod %>% filter(Year == 2014)
+crime.2015 <- crime_mod %>% filter(Year == 2015)
+crime.2016 <- crime_mod %>% filter(Year == 2016)
+crime.2017 <- crime_mod %>% filter(Year == 2017)
+crime.2018 <- crime_mod %>% filter(Year == 2018)
+crime.2019 <- crime_mod %>% filter(Year == 2019)
+crime.2020 <- crime_mod %>% filter(Year == 2020)
+crime.2021 <- crime_mod %>% filter(Year == 2021)
+crime.2022 <- crime_mod %>% filter(Year == 2022)
+crime.2023 <- crime_mod %>% filter(Year == 2023)
+
+#make spatial object 
+sp_crime.2010 <- crime.2010
+coordinates(sp_crime.2010) <- ~X+Y
+
+sp_crime.2011 <- crime.2011
+coordinates(sp_crime.2011) <- ~X+Y
+
+sp_crime.2012 <- crime.2012
+coordinates(sp_crime.2012) <- ~X+Y
+
+sp_crime.2013 <- crime.2013
+coordinates(sp_crime.2013) <- ~X+Y
+
+sp_crime.2014 <- crime.2014
+coordinates(sp_crime.2014) <- ~X+Y
+
+sp_crime.2015 <- crime.2015
+coordinates(sp_crime.2015) <- ~X+Y
+
+sp_crime.2016 <- crime.2016
+coordinates(sp_crime.2016) <- ~X+Y
+
+sp_crime.2017 <- crime.2017
+coordinates(sp_crime.2017) <- ~X+Y
+
+sp_crime.2018 <- crime.2018
+coordinates(sp_crime.2018) <- ~X+Y
+
+sp_crime.2019 <- crime.2019
+coordinates(sp_crime.2019) <- ~X+Y
+
+sp_crime.2020 <- crime.2020
+coordinates(sp_crime.2020) <- ~X+Y
+
+sp_crime.2021 <- crime.2021
+coordinates(sp_crime.2021) <- ~X+Y
+
+sp_crime.2022 <- crime.2022
+coordinates(sp_crime.2022) <- ~X+Y
+
+sp_crime.2023 <- crime.2023
+coordinates(sp_crime.2023) <- ~X+Y
+
+#need to project these datasets to have the same projection
+proj4string(minn_wards) #check projection
+proj4string(sp_crime.2010) <- CRS("+proj=longlat +datum=WGS84 +no_defs")
+proj4string(sp_crime.2011) <- CRS("+proj=longlat +datum=WGS84 +no_defs")
+proj4string(sp_crime.2012) <- CRS("+proj=longlat +datum=WGS84 +no_defs")
+proj4string(sp_crime.2013) <- CRS("+proj=longlat +datum=WGS84 +no_defs")
+proj4string(sp_crime.2014) <- CRS("+proj=longlat +datum=WGS84 +no_defs")
+proj4string(sp_crime.2015) <- CRS("+proj=longlat +datum=WGS84 +no_defs")
+proj4string(sp_crime.2016) <- CRS("+proj=longlat +datum=WGS84 +no_defs")
+proj4string(sp_crime.2017) <- CRS("+proj=longlat +datum=WGS84 +no_defs")
+proj4string(sp_crime.2018) <- CRS("+proj=longlat +datum=WGS84 +no_defs")
+proj4string(sp_crime.2019) <- CRS("+proj=longlat +datum=WGS84 +no_defs")
+proj4string(sp_crime.2020) <- CRS("+proj=longlat +datum=WGS84 +no_defs")
+proj4string(sp_crime.2021) <- CRS("+proj=longlat +datum=WGS84 +no_defs")
+proj4string(sp_crime.2022) <- CRS("+proj=longlat +datum=WGS84 +no_defs")
+proj4string(sp_crime.2023) <- CRS("+proj=longlat +datum=WGS84 +no_defs")
+
+#transform the projection of the crime data to match the wards
+sp_crime.2010 <- spTransform(sp_crime.2010, proj4string(minn_wards))
+sp_crime.2011 <- spTransform(sp_crime.2011, proj4string(minn_wards))
+sp_crime.2012 <- spTransform(sp_crime.2012, proj4string(minn_wards))
+sp_crime.2013 <- spTransform(sp_crime.2013, proj4string(minn_wards))
+sp_crime.2014 <- spTransform(sp_crime.2014, proj4string(minn_wards))
+sp_crime.2015 <- spTransform(sp_crime.2015, proj4string(minn_wards))
+sp_crime.2016 <- spTransform(sp_crime.2016, proj4string(minn_wards))
+sp_crime.2017 <- spTransform(sp_crime.2017, proj4string(minn_wards))
+sp_crime.2018 <- spTransform(sp_crime.2018, proj4string(minn_wards))
+sp_crime.2019 <- spTransform(sp_crime.2019, proj4string(minn_wards))
+sp_crime.2020 <- spTransform(sp_crime.2020, proj4string(minn_wards))
+sp_crime.2021 <- spTransform(sp_crime.2021, proj4string(minn_wards))
+sp_crime.2022 <- spTransform(sp_crime.2022, proj4string(minn_wards))
+sp_crime.2023 <- spTransform(sp_crime.2023, proj4string(minn_wards))
+
+
+#overlay the two
+over_data.2010 <- over(sp_crime.2010, minn_wards)
+over_data.2011 <- over(sp_crime.2011, minn_wards)
+over_data.2012 <- over(sp_crime.2012, minn_wards)
+over_data.2013 <- over(sp_crime.2013, minn_wards)
+over_data.2014 <- over(sp_crime.2014, minn_wards)
+over_data.2015 <- over(sp_crime.2015, minn_wards)
+over_data.2016 <- over(sp_crime.2016, minn_wards)
+over_data.2017 <- over(sp_crime.2017, minn_wards)
+over_data.2018 <- over(sp_crime.2018, minn_wards)
+over_data.2019 <- over(sp_crime.2019, minn_wards)
+over_data.2020 <- over(sp_crime.2020, minn_wards)
+over_data.2021 <- over(sp_crime.2021, minn_wards)
+over_data.2022 <- over(sp_crime.2022, minn_wards)
+over_data.2023 <- over(sp_crime.2023, minn_wards)
+
+#how many points are outside of these wards?
+length(which(is.na(over_data.2010$FID))) #3
+length(which(is.na(over_data.2011$FID))) #0
+length(which(is.na(over_data.2012$FID))) #4
+length(which(is.na(over_data.2013$FID))) #3
+length(which(is.na(over_data.2014$FID))) #2
+length(which(is.na(over_data.2015$FID))) #4
+length(which(is.na(over_data.2016$FID))) #4
+length(which(is.na(over_data.2017$FID))) #9
+length(which(is.na(over_data.2018$FID))) #10
+length(which(is.na(over_data.2019$FID))) #296
+length(which(is.na(over_data.2020$FID))) #353
+length(which(is.na(over_data.2021$FID))) #464
+length(which(is.na(over_data.2022$FID))) #450
+length(which(is.na(over_data.2023$FID))) #2
+
+#combine ward information with crime information
+crime_data_full.2010 <- cbind(crime.2010, over_data.2010)
+crime_data_full.2011 <- cbind(crime.2011, over_data.2011)
+crime_data_full.2012 <- cbind(crime.2012, over_data.2012)
+crime_data_full.2013 <- cbind(crime.2013, over_data.2013)
+crime_data_full.2014 <- cbind(crime.2014, over_data.2014)
+crime_data_full.2015 <- cbind(crime.2015, over_data.2015)
+crime_data_full.2016 <- cbind(crime.2016, over_data.2016)
+crime_data_full.2017 <- cbind(crime.2017, over_data.2017)
+crime_data_full.2018 <- cbind(crime.2018, over_data.2018)
+crime_data_full.2019 <- cbind(crime.2019, over_data.2019)
+crime_data_full.2020 <- cbind(crime.2020, over_data.2020)
+crime_data_full.2021 <- cbind(crime.2021, over_data.2021)
+crime_data_full.2022 <- cbind(crime.2022, over_data.2022)
+crime_data_full.2023 <- cbind(crime.2023, over_data.2023)
+
+#get count of events per ward 
+agg_data.2010 <- over_data.2010 %>% group_by(BDNUM) %>% tally() %>%
+  rename(num_crime_2010 = "n")
+agg_data.2011 <- over_data.2011 %>% group_by(BDNUM) %>% tally() %>%
+  rename(num_crime_2011 = "n")
+agg_data.2012 <- over_data.2012 %>% group_by(BDNUM) %>% tally() %>%
+  rename(num_crime_2012 = "n")
+agg_data.2013 <- over_data.2013 %>% group_by(BDNUM) %>% tally() %>%
+  rename(num_crime_2013 = "n")
+agg_data.2014 <- over_data.2014 %>% group_by(BDNUM) %>% tally() %>%
+  rename(num_crime_2014 = "n")
+agg_data.2015 <- over_data.2015 %>% group_by(BDNUM) %>% tally() %>%
+  rename(num_crime_2015 = "n")
+agg_data.2016 <- over_data.2016 %>% group_by(BDNUM) %>% tally() %>%
+  rename(num_crime_2016 = "n")
+agg_data.2017 <- over_data.2017 %>% group_by(BDNUM) %>% tally() %>%
+  rename(num_crime_2017 = "n")
+agg_data.2018 <- over_data.2018 %>% group_by(BDNUM) %>% tally() %>%
+  rename(num_crime_2018 = "n")
+agg_data.2019 <- over_data.2019 %>% group_by(BDNUM) %>% tally() %>%
+  rename(num_crime_2019 = "n")
+agg_data.2020 <- over_data.2020 %>% group_by(BDNUM) %>% tally() %>%
+  rename(num_crime_2020 = "n")
+agg_data.2021 <- over_data.2021 %>% group_by(BDNUM) %>% tally() %>%
+  rename(num_crime_2021 = "n")
+agg_data.2022 <- over_data.2022 %>% group_by(BDNUM) %>% tally() %>%
+  rename(num_crime_2022 = "n")
+agg_data.2023 <- over_data.2023 %>% group_by(BDNUM) %>% tally() %>%
+  rename(num_crime_2023 = "n")
+
+wards_fortify.years <- wards_fortify
+wards_fortify.years <- left_join(wards_fortify.years, agg_data.2010)
+wards_fortify.years <- left_join(wards_fortify.years, agg_data.2011)
+wards_fortify.years <- left_join(wards_fortify.years, agg_data.2012)
+wards_fortify.years <- left_join(wards_fortify.years, agg_data.2013)
+wards_fortify.years <- left_join(wards_fortify.years, agg_data.2014)
+wards_fortify.years <- left_join(wards_fortify.years, agg_data.2015)
+wards_fortify.years <- left_join(wards_fortify.years, agg_data.2016)
+wards_fortify.years <- left_join(wards_fortify.years, agg_data.2017)
+wards_fortify.years <- left_join(wards_fortify.years, agg_data.2018)
+wards_fortify.years <- left_join(wards_fortify.years, agg_data.2019)
+wards_fortify.years <- left_join(wards_fortify.years, agg_data.2020)
+wards_fortify.years <- left_join(wards_fortify.years, agg_data.2021)
+wards_fortify.years <- left_join(wards_fortify.years, agg_data.2022)
+wards_fortify.years <- left_join(wards_fortify.years, agg_data.2023)
+
+#plot number of crimes by wards
+minn_map + geom_polygon(data= wards_fortify.years, 
+                        aes(x = long, y = lat, group = group,
+                            fill = num_crime_2010), 
+                        col = "black") +
+  scale_fill_distiller(palette = "Spectral")
+
+minn_map + geom_polygon(data= wards_fortify.years, 
+                        aes(x = long, y = lat, group = group,
+                            fill = num_crime_2011), 
+                        col = "black") +
+  scale_fill_distiller(palette = "Spectral")
+
+minn_map + geom_polygon(data= wards_fortify.years, 
+                        aes(x = long, y = lat, group = group,
+                            fill = num_crime_2012), 
+                        col = "black") +
+  scale_fill_distiller(palette = "Spectral")
+
+minn_map + geom_polygon(data= wards_fortify.years, 
+                        aes(x = long, y = lat, group = group,
+                            fill = num_crime_2013), 
+                        col = "black") +
+  scale_fill_distiller(palette = "Spectral")
+
+minn_map + geom_polygon(data= wards_fortify.years, 
+                        aes(x = long, y = lat, group = group,
+                            fill = num_crime_2014), 
+                        col = "black") +
+  scale_fill_distiller(palette = "Spectral")
+
+minn_map + geom_polygon(data= wards_fortify.years, 
+                        aes(x = long, y = lat, group = group,
+                            fill = num_crime_2015), 
+                        col = "black") +
+  scale_fill_distiller(palette = "Spectral")
+
+minn_map + geom_polygon(data= wards_fortify.years, 
+                        aes(x = long, y = lat, group = group,
+                            fill = num_crime_2016), 
+                        col = "black") +
+  scale_fill_distiller(palette = "Spectral")
+
+minn_map + geom_polygon(data= wards_fortify.years, 
+                        aes(x = long, y = lat, group = group,
+                            fill = num_crime_2017), 
+                        col = "black") +
+  scale_fill_distiller(palette = "Spectral")
+
+minn_map + geom_polygon(data= wards_fortify.years, 
+                        aes(x = long, y = lat, group = group,
+                            fill = num_crime_2018), 
+                        col = "black") +
+  scale_fill_distiller(palette = "Spectral")
+
+minn_map + geom_polygon(data= wards_fortify.years, 
+                        aes(x = long, y = lat, group = group,
+                            fill = num_crime_2019), 
+                        col = "black") +
+  scale_fill_distiller(palette = "Spectral")
+
+minn_map + geom_polygon(data= wards_fortify.years, 
+                        aes(x = long, y = lat, group = group,
+                            fill = num_crime_2020), 
+                        col = "black") +
+  scale_fill_distiller(palette = "Spectral")
+
+minn_map + geom_polygon(data= wards_fortify.years, 
+                        aes(x = long, y = lat, group = group,
+                            fill = num_crime_2021), 
+                        col = "black") +
+  scale_fill_distiller(palette = "Spectral")
+
+minn_map + geom_polygon(data= wards_fortify.years, 
+                        aes(x = long, y = lat, group = group,
+                            fill = num_crime_2022), 
+                        col = "black") +
+  scale_fill_distiller(palette = "Spectral")
+
+minn_map + geom_polygon(data= wards_fortify.years, 
+                        aes(x = long, y = lat, group = group,
+                            fill = num_crime_2023), 
+                        col = "black") +
+  scale_fill_distiller(palette = "Spectral")
+
+#You can do basically the same thing with census tracts! 
+# The projections are actually a bit easier in that case.
+```
+
+## Use of Force Data
+
+```{r}
+use_of_force_data <- read_csv("../../data/original/Police_Use_of_Force.csv")
+#When checking unique(use_of_force_data$Problem), there's things like suspicious
+#vehicle, or prowler. Do these fall under suspicious person?
+#Under PrimaryOffense, there are 5314 labeled OBSTRU or POBSTR, might be obstruction
+#of legal process. Of the 5464 suspicious person cases, 1021 are labelled as such.
+
+#Look into offense codes, like what OBSTRU is.
+#Look at Is911call column
+
+suspicious_problem <- use_of_force_data %>%
+  filter(
+    str_detect(Problem, "Suspicious Person") == TRUE)
+
+suspicious_problem_coord <- suspicious_problem %>%
+  filter(X != 0 & Y != 0)
+
+minn_map <- ggmap(get_map(c(left = -93.35, bottom = 44.88, 
+                         right = -93.18, top = 45.06), source = "stamen"))
+
+#suspicious persons cases colored by race
+minn_map + 
+  geom_point(data = suspicious_problem_coord, aes(x=X, y=Y, alpha = 0.3)) +
+  geom_polygon(data= wards_fortify, 
+                        aes(x = long, y = lat, group = group), fill = NA,
+                        col = "red")
+
+minn_map + 
+  geom_point(data = crime_data_full.2023 %>% filter(Problem_Initial == "Suspicious Person (P)" | Problem_Initial == "Suspicious Person (P)~PD"), aes(x=X, y=Y, alpha = 0.3)) +
+  geom_polygon(data= wards_fortify, 
+                        aes(x = long, y = lat, group = group), fill = NA,
+                        col = "red")
+
+minn_map + 
+  geom_point(data = crime_data_full %>% filter(Problem_Initial == "Suspicious Person (P)" | Problem_Initial == "Suspicious Person (P)~PD"), aes(x=X, y=Y, alpha = 0.3)) +
+  geom_polygon(data= wards_fortify, 
+                        aes(x = long, y = lat, group = group), fill = NA,
+                        col = "red")
+
+ minn_map + 
+  geom_point(data = suspicious_problem_coord, aes(x=X, y=Y, color=factor(Is911Call)))
+sum(suspicious_problem$Is911Call == "No") #4684 out of 5464
+```
+
+```{r}
+#Ward 9. Includes Midtown Phillips, East Phillips, Central, Powderhorn Park, 
+#Corcoran, and part of Longfellow.
+suspicious_ward9 <- suspicious_problem %>%
+  filter(Neighborhood %in% c("Midtown Phillips", "East Phillips", "Central", "Powderhorn Park", "Corcoran"))
+table(suspicious_ward9$Race) / nrow(suspicious_ward9)
+#Can't find demographics solely for ward 9.
+```
+
+## Crime Data
+
+```{r}
+Crime_Data <- read_csv("../../data/original/Crime_Data.csv")
+
+#41269 crimes were not part of the NIBRS data
+sum(Crime_Data$NIBRS_Crime_Against == "Non NIBRS Data")
+
+#When choosing what all constituted a suspicious person, I chose Problem_Initial or
+#Problem_Final, since some rows had only one be suspicious person (See row 44, or
+#Case number 19-377586)
+
+#2680 rows
+suspicious_problem_crime <- Crime_Data %>%
+  filter(
+    str_detect(Problem_Initial, "Suspicious Person") == TRUE | 
+    str_detect(Problem_Final, "Suspicious Person") == TRUE)
+
+#289 rows
+suspicious_crime_ward9 <- suspicious_problem_crime %>%
+  filter(Ward == 9)
+
+suspicious_crime_ward9_coord <- suspicious_crime_ward9 %>%
+  filter(X != 0 & Y != 0)
+
+ward9_map <- ggmap(get_map(c(left = -93.28, bottom = 44.933, 
+                         right = -93.23, top = 44.963), source = "stamen"))
+
+#Lots of suspicious activity at East Phillips park and the Lake Street Target / 
+#old precinct area
+ward9_map + 
+  geom_jitter(data = suspicious_crime_ward9_coord, aes(x=Longitude, y=Latitude), 
+              width = .0007, height = .0007)
+```
+
+```{r}
+minneapolis_tracts <- tracts("Minnesota", c("Hennepin"))
+minneapolis_tracts <- as_Spatial(minneapolis_tracts)
+
+class(crime_data)
+coordinates(crime_data) <- ~X+Y
+class(crime_data)
+proj4string(crime_data)
+
+proj4string(crime_data) <- proj4string(minneapolis_tracts)
+crime_data <- crime_data[-which(is.na(over_dataset$GEOID)),] %>% as.data.frame()
+
+minn_census <- get_acs(geography = "tract", 
+                         variables = c("B01003_001E", 
+                                       "B19013_001E", "B25125_024E",
+                                       "B25125_001E"), year = 2021,
+                         state = "MN", county = c("Hennepin County"), 
+                         geometry = F)
+
+minn_census <- left_join(minn_census, code_book)
+```

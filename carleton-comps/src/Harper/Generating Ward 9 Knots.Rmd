@@ -1,0 +1,90 @@
+---
+title: "Generating Ward 9 Knots"
+output: html_document
+date: "2023-04-05"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(sp)
+library(ggplot2)
+library(dplyr)
+library(ggmap)
+```
+
+```{r}
+#setwd("Users/pjohn/OneDrive/Documents/GitHub/carleton_comps_22_23/src/parker")
+load("../../data/working/ward_9_blockgroups/Ward9_Blocks.Rdata")
+```
+
+
+```{r}
+lattice9<- expand.grid(lon = seq(bbox(ward9_blocks)[1,1],bbox(ward9_blocks)[1,2],length.out = 12), 
+                       lat = seq(bbox(ward9_blocks)[2,1],bbox(ward9_blocks)[2,2],length.out = 12))
+
+sp_lattice9 <- lattice9
+coordinates(sp_lattice9) <- ~lon+lat
+proj4string(ward9_blocks) #check projection
+proj4string(sp_lattice9) <- CRS("+proj=longlat +datum=WGS84 +no_defs")
+
+sp_lattice9 <- spTransform(sp_lattice9, proj4string(ward9_blocks))
+over_lattice9 <- over(sp_lattice9, ward9_blocks)
+lattice_full9 <- cbind(lattice9, over_lattice9)
+
+knots_and_other_stuff9 <- lattice_full9 %>%
+  filter(is.na(BDNUM) == FALSE)
+
+ggplot(knots_and_other_stuff9) + geom_point(aes(x=lon, y=lat))
+#ggplot(knots) + geom_point(aes(x=lon, y=lat))
+```
+
+```{r}
+lattice1<- expand.grid(lon = seq(bbox(ward9_blocks)[1,1],bbox(ward9_blocks)[1,2],length.out = 20), 
+                       lat = seq(bbox(ward9_blocks)[2,1],bbox(ward9_blocks)[2,2],length.out = 20))
+
+sp_lattice1 <- lattice1
+coordinates(sp_lattice1) <- ~lon+lat
+proj4string(ward9_blocks) #check projection
+proj4string(sp_lattice1) <- CRS("+proj=longlat +datum=WGS84 +no_defs")
+
+sp_lattice1 <- spTransform(sp_lattice1, proj4string(ward9_blocks))
+over_lattice1 <- over(sp_lattice1, ward9_blocks)
+lattice_full1 <- cbind(lattice1, over_lattice1)
+
+knots_and_other_stuff1 <- lattice_full1 %>%
+  filter(is.na(BDNUM) == FALSE)
+
+
+ward9_blocks_fortify <- broom::tidy(ward9_blocks)
+ward9_blocks$id <- row.names(ward9_blocks)
+ward9_blocks_fortify <- left_join(ward9_blocks_fortify, ward9_blocks@data)
+
+ggmap(get_map(c(left = -93.28, bottom = 44.933, 
+                         right = -93.227, top = 44.963), source = "stamen")) + 
+geom_point(data = knots_and_other_stuff9, aes(x=lon, y=lat)) + 
+  geom_polygon(data= ward9_blocks_fortify, 
+                        aes(x = long, y = lat, group = group), 
+                        col = "blue", fill = NA, linewidth = 0.8) + 
+  labs(title = "Knots Subsetted to Ward 9") + 
+    theme(axis.text.x = element_blank(), axis.text.y = element_blank(), 
+        axis.ticks = element_blank(),
+        axis.title.y=element_blank(), axis.title.x=element_blank(),
+        plot.title = element_text(hjust = 0.5))
+#ggplot(knots) + geom_point(knots, aes(x=lon, y=lat))
+```
+
+```{r}
+write.csv(
+  data.frame(lon=knots_and_other_stuff9$lon, 
+             lat=knots_and_other_stuff9$lat), 
+  "../../data/working/ward_9_blockgroups/71_knots.csv", 
+  row.names=FALSE
+)
+
+#write.csv(
+#  data.frame(lon=knots_and_other_stuff1$lon, 
+#             lat=knots_and_other_stuff1$lat), 
+#  "../../data/working/ward_9_blockgroups/212_knots.csv", 
+#  row.names=FALSE
+#)
+```

@@ -1,0 +1,31 @@
+---
+title: "Correlation Matrix"
+output: html_document
+date: "2023-04-13"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(corrplot)
+library(dplyr)
+library(tidyverse)
+```
+
+```{r}
+minn_use <- subset(minn_acs_data, select = c(med_hh_income, total_female, total_male, total_foodstamp, total_pop, total_labor_force, 
+                                 perc_unemployed, perc_ba_plus, total_educ, herfendahl))
+
+minn_use.cor <- cor(minn_use)
+minn_use.cor
+corrplot(minn_use.cor)
+#NAs in med_hh_income, perc_unemployed, perc_ba_plus, herfendahl
+
+minn_no_na <- na.omit(minn_use)
+minn_no_na.cor <- cor(minn_no_na)
+cor(minn_no_na)
+corrplot(cor(minn_no_na))
+corrplot(cor(minn_no_na), type = "lower", addCoef.col = "black", method = "color", diag = FALSE, number.cex = 0.7)
+
+palette <- colorRampPalette(c("red", "white", "blue")) (20)
+heatmap(x = minn_no_na.cor, col = palette, symm = TRUE)
+```

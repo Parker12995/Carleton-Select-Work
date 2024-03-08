@@ -1,0 +1,401 @@
+---
+title: "cred_int_effect_size_calc"
+author: "Aya Klos"
+date: "2023-04-03"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+rm(list = ls())
+library(tidyverse)
+library(mcmcse)
+library(coda)
+
+#this shouldn't be stored in src folder
+# nhpp_samp <- read.csv("/Users/ayaklos/Documents/GitHub/carleton_comps_22_23/src/parker/nhpp_samples.csv")
+# load("/Users/ayaklos/Documents/GitHub/carleton_comps_22_23/data/working/ward_9_blockgroups/samples_bg_prop_pts_no3.Rdata")
+
+#load samples
+load("/Users/ayaklos/Downloads/lgcp_sus_uof_6cov_3million_samples_20000_int_pts.Rda")
+sus_samples <- samples
+load("/Users/ayaklos/Downloads/lgcp_nonobs_uof_6cov_2million_samples.Rda")
+nonsus_samples <- samples
+
+#remove burn in
+sus_rm_burnin <- sus_samples[500001:nrow(sus_samples),]
+nonsus_rm_burnin <- nonsus_samples[500001:nrow(nonsus_samples),]
+
+#load samples
+load("/Users/ayaklos/Downloads/lgcp_nonobs_uof_6cov_2million_samples.Rda")
+nonobs_samples <- samples
+load("/Users/ayaklos/Downloads/lgcp_obs_uof_6cov_2million_samples.Rda")
+obs_samples <- samples
+
+#remove burn in
+nonobs_rm_burnin <- nonobs_samples[1000001:nrow(nonobs_samples),]
+obs_rm_burnin <- obs_samples[1000001:nrow(obs_samples),]
+
+#load samples
+load("/Users/ayaklos/Downloads/lgcp_911_6cov_2million_samples.Rda")
+yes911_samples <- samples
+load("/Users/ayaklos/Downloads/lgcp_not911_6cov_2million_samples.Rda")
+non911_samples <- samples
+
+#remove burn in
+yes911_rm_burnin <- yes911_samples[500001:nrow(yes911_samples),]
+non911_rm_burnin <- non911_samples[500001:nrow(non911_samples),]
+
+#load samples
+load("/Users/ayaklos/Downloads/lgcp_uof_6cov_2million_ward9uof.Rda")
+ward9_samples <- samples
+load("/Users/ayaklos/Downloads/lgcp_uof_6cov_2million_ward8uof.Rda")
+ward8_samples <- samples
+
+#remove burn in
+ward9_rm_burnin <- ward9_samples[1000001:nrow(ward9_samples),]
+ward8_rm_burnin <- ward8_samples[1000001:nrow(ward8_samples),]
+
+load("/Users/ayaklos/Downloads/lgcp_uof_6cov_2million_before_GF.Rda")
+before_GF_samples <- samples
+load("/Users/ayaklos/Downloads/lgcp_uof_6cov_3million_during_GF.Rda")
+during_GF_samples <- samples
+load("/Users/ayaklos/Downloads/lgcp_uof_6cov_2million_after_GF.Rda")
+after_GF_samples <- samples
+
+before_rm_burnin <- before_GF_samples[1000001:nrow(before_GF_samples),]
+during_rm_burnin <- during_GF_samples[2000001:nrow(during_GF_samples),]
+after_rm_burnin <- after_GF_samples[1000001:nrow(after_GF_samples),]
+```
+
+```{r}
+#remove burn in
+#visualize posterior distributions
+
+# ggplot(data = samps_rm_burnin, aes(beta0)) +
+#   geom_histogram(bins = 13)
+# 
+# ggplot(data = samps_rm_burnin, aes(beta1)) +
+#   geom_histogram(bins = 13)
+# 
+# ggplot(data = samps_rm_burnin, aes(beta2)) +
+#   geom_histogram(bins = 13)
+# 
+# ggplot(data = samps_rm_burnin, aes(beta3)) +
+#   geom_histogram(bins = 13)
+# 
+# ggplot(data = samps_rm_burnin, aes(sigma)) +
+#   geom_histogram(bins = 13)
+# 
+# #95% credible intervals (equal tail)--not a good choice if posterior distributions are skewed
+# quantile(samps_rm_burnin$beta0, c(0.025, 0.975))
+# quantile(samps_rm_burnin$beta1, c(0.025, 0.975))
+# quantile(samps_rm_burnin$beta2, c(0.025, 0.975))
+# quantile(samps_rm_burnin$beta3, c(0.025, 0.975))
+
+#95% credible intervals (high posterior density)
+#suspicious person cases 
+sus_lgcp_mcmc <- as.mcmc(sus_rm_burnin)
+sus_hpd_int <- HPDinterval(sus_lgcp_mcmc)
+head(sus_hpd_int)
+
+sus_hpd_int.df <- sus_hpd_int %>% as.data.frame()
+sus_hpd_int.df$midpoint <- (sus_hpd_int.df$lower + sus_hpd_int.df$upper )/2
+sus_hpd_int.df$estimate <- rownames(sus_hpd_int.df)
+sus_hpd_int.df$desc <- "SP Case"
+
+#non-suspicious person cases
+nonsus_lgcp_mcmc <- as.mcmc(nonsus_rm_burnin)
+nonsus_hpd_int <- HPDinterval(nonsus_lgcp_mcmc)
+head(nonsus_hpd_int)
+
+nonsus_hpd_int.df <- nonsus_hpd_int %>% as.data.frame()
+nonsus_hpd_int.df$midpoint <- (nonsus_hpd_int.df$lower + nonsus_hpd_int.df$upper )/2
+nonsus_hpd_int.df$estimate <- rownames(nonsus_hpd_int.df)
+nonsus_hpd_int.df$desc <- "Non-SP Case"
+
+sus_comb.df <- rbind(sus_hpd_int.df,nonsus_hpd_int.df)
+sus_comb_coef.df <- sus_comb.df[c(1:7,81:87),]
+sus_comb_coef.df <- sus_comb_coef.df %>% arrange(estimate)
+sus_comb_coef.df$index <- c(1,1.5,
+                            4,4.5,
+                            7,7.5,
+                            10,10.5,
+                            13,13.5,
+                            16,16.5,
+                            19,19.5)
+
+#non-obstruction of legal process cases
+nonobs_lgcp_mcmc <- as.mcmc(nonobs_rm_burnin)
+nonobs_hpd_int <- HPDinterval(nonobs_lgcp_mcmc)
+head(nonobs_hpd_int)
+
+nonobs_hpd_int.df <- nonobs_hpd_int %>% as.data.frame()
+nonobs_hpd_int.df$midpoint <- (nonobs_hpd_int.df$lower + nonobs_hpd_int.df$upper )/2
+nonobs_hpd_int.df$estimate <- rownames(nonobs_hpd_int.df)
+nonobs_hpd_int.df$desc <- "Non-Obs Case"
+
+#obstruction of legal process cases
+obs_lgcp_mcmc <- as.mcmc(obs_rm_burnin)
+obs_hpd_int <- HPDinterval(obs_lgcp_mcmc)
+head(obs_hpd_int)
+
+obs_hpd_int.df <- obs_hpd_int %>% as.data.frame()
+obs_hpd_int.df$midpoint <- (obs_hpd_int.df$lower + obs_hpd_int.df$upper )/2
+obs_hpd_int.df$estimate <- rownames(obs_hpd_int.df)
+obs_hpd_int.df$desc <- "Obs Case"
+
+obs_comb.df <- rbind(obs_hpd_int.df,nonobs_hpd_int.df)
+obs_comb_coef.df <- obs_comb.df[c(1:7,81:87),]
+obs_comb_coef.df <- obs_comb_coef.df %>% arrange(estimate)
+obs_comb_coef.df$index <- c(1,1.5,
+                            4,4.5,
+                            7,7.5,
+                            10,10.5,
+                            13,13.5,
+                            16,16.5,
+                            19,19.5)
+
+obs_comb_coef.df$estimate <- as.factor(obs_comb_coef.df$estimate)
+
+#911 call cases
+yes911_lgcp_mcmc <- as.mcmc(yes911_rm_burnin)
+yes911_hpd_int <- HPDinterval(yes911_lgcp_mcmc)
+head(yes911_hpd_int)
+
+yes911_hpd_int.df <- yes911_hpd_int %>% as.data.frame()
+yes911_hpd_int.df$midpoint <- (yes911_hpd_int.df$lower + yes911_hpd_int.df$upper )/2
+yes911_hpd_int.df$estimate <- rownames(yes911_hpd_int.df)
+yes911_hpd_int.df$desc <- "911 Called"
+
+#non-911 call cases
+non911_lgcp_mcmc <- as.mcmc(non911_rm_burnin)
+non911_hpd_int <- HPDinterval(non911_lgcp_mcmc)
+head(non911_hpd_int)
+
+non911_hpd_int.df <- non911_hpd_int %>% as.data.frame()
+non911_hpd_int.df$midpoint <- (non911_hpd_int.df$lower + non911_hpd_int.df$upper )/2
+non911_hpd_int.df$estimate <- rownames(non911_hpd_int.df)
+non911_hpd_int.df$desc <- "911 Not Called"
+
+call911_comb.df <- rbind(yes911_hpd_int.df,non911_hpd_int.df)
+call911_comb_coef.df <- call911_comb.df[c(1:7,81:87),]
+call911_comb_coef.df <- call911_comb_coef.df %>% arrange(estimate)
+call911_comb_coef.df$index <- c(1,1.5,
+                            4,4.5,
+                            7,7.5,
+                            10,10.5,
+                            13,13.5,
+                            16,16.5,
+                            19,19.5)
+
+call911_comb_coef.df$estimate <- as.factor(call911_comb_coef.df$estimate)
+call911_comb_coef.df$desc <- as.factor(call911_comb_coef.df$desc)
+call911_comb_coef.df$desc <- factor(call911_comb_coef.df$desc, levels = c("911 Not Called", "911 Called"))
+
+#Ward 9 cases
+ward9_lgcp_mcmc <- as.mcmc(ward9_rm_burnin)
+ward9_hpd_int <- HPDinterval(ward9_lgcp_mcmc)
+head(ward9_hpd_int)
+
+ward9_hpd_int.df <- ward9_hpd_int %>% as.data.frame()
+ward9_hpd_int.df$midpoint <- (ward9_hpd_int.df$lower + ward9_hpd_int.df$upper )/2
+ward9_hpd_int.df$estimate <- rownames(ward9_hpd_int.df)
+ward9_hpd_int.df$desc <- "Ward 9"
+
+#Ward 8 cases
+ward8_lgcp_mcmc <- as.mcmc(ward8_rm_burnin)
+ward8_hpd_int <- HPDinterval(ward8_lgcp_mcmc)
+head(ward8_hpd_int)
+
+ward8_hpd_int.df <- ward8_hpd_int %>% as.data.frame()
+ward8_hpd_int.df$midpoint <- (ward8_hpd_int.df$lower + ward8_hpd_int.df$upper )/2
+ward8_hpd_int.df$estimate <- rownames(ward8_hpd_int.df)
+ward8_hpd_int.df$desc <- "Ward 8"
+
+wards_comb.df <- rbind(ward9_hpd_int.df,ward8_hpd_int.df)
+wards_comb_coef.df <- wards_comb.df[c(1:7,81:87),]
+wards_comb_coef.df <- wards_comb_coef.df %>% arrange(estimate)
+wards_comb_coef.df$index <- c(1,1.5,
+                            4,4.5,
+                            7,7.5,
+                            10,10.5,
+                            13,13.5,
+                            16,16.5,
+                            19,19.5)
+
+
+
+#before GF murder
+before_lgcp_mcmc <- as.mcmc(before_rm_burnin)
+before_hpd_int <- HPDinterval(before_lgcp_mcmc)
+head(before_hpd_int)
+
+before_hpd_int.df <- before_hpd_int %>% as.data.frame()
+before_hpd_int.df$midpoint <- (before_hpd_int.df$lower + before_hpd_int.df$upper )/2
+before_hpd_int.df$estimate <- rownames(before_hpd_int.df)
+before_hpd_int.df$desc <- "Before Murder"
+
+#during GF cases
+during_lgcp_mcmc <- as.mcmc(during_rm_burnin)
+during_hpd_int <- HPDinterval(during_lgcp_mcmc)
+head(during_hpd_int)
+
+during_hpd_int.df <- during_hpd_int %>% as.data.frame()
+during_hpd_int.df$midpoint <- (during_hpd_int.df$lower + during_hpd_int.df$upper )/2
+during_hpd_int.df$estimate <- rownames(during_hpd_int.df)
+during_hpd_int.df$desc <- "During Murder"
+
+#after GF cases
+after_lgcp_mcmc <- as.mcmc(after_rm_burnin)
+after_hpd_int <- HPDinterval(after_lgcp_mcmc)
+head(after_hpd_int)
+
+after_hpd_int.df <- after_hpd_int %>% as.data.frame()
+after_hpd_int.df$midpoint <- (after_hpd_int.df$lower + after_hpd_int.df$upper )/2
+after_hpd_int.df$estimate <- rownames(after_hpd_int.df)
+after_hpd_int.df$desc <- "After Murder"
+
+gf_murder_comb.df <- rbind(before_hpd_int.df,during_hpd_int.df,after_hpd_int.df)
+gf_murder_comb_coef.df <- gf_murder_comb.df[c(1:7,81:87,161:167),]
+gf_murder_comb_coef.df <- gf_murder_comb_coef.df %>% arrange(estimate)
+gf_murder_comb_coef.df$index <- c(1,1.5,2,
+                            5,5.5,6,
+                            9,9.5,10,
+                            13,13.5,14,
+                            17,17.5,18,
+                            21,21.5,22,
+                            25,25.5,26)
+
+gf_murder_comb_coef.df$desc <- as.factor(gf_murder_comb_coef.df$desc)
+gf_murder_comb_coef.df$desc <- factor(gf_murder_comb_coef.df$desc, levels = c("Before Murder", 
+                                                                            "During Murder",
+                                                                            "After Murder"))
+
+
+#plot 95% confidence intervals for beta and sigma estimates
+sus_comb_coef.df$estimate <- as.factor(sus_comb_coef.df$estimate)
+
+
+new_names <- c("beta0", "beta1 (Total Population)", "beta2 (Median Household Income)",
+               "beta3 (Perc. Female)", "beta4 (Herfindahl Index)", "beta5 (Perc. Unemployed)",
+               "beta6 (Perc. Foodstamp)")
+
+
+
+ggplot(sus_comb_coef.df, aes(y=midpoint, x=index, color=estimate,shape=desc)) +
+    geom_pointrange(aes(ymin=lower, ymax=upper), size=0.8, linewidth=1.5) +
+    coord_flip() +
+  scale_color_manual(
+    values = c("black", "red", "orange", 
+               "green4", "blue", "purple",
+               "hotpink"),
+    labels = new_names
+    ) +
+  geom_hline(yintercept = 0, linetype=2) +
+  labs(x="", y="Estimate Values", color="Regression Coefficient \n Estimate", 
+       shape="Case Type", title="Plot of 95% Credible Intervals for Regression Coefficient Estimates \n for Suspicious Persons (SP) and non-Suspicious Persons (non-SP) Cases") +
+  theme(axis.text.y=element_blank(),
+        axis.ticks.y=element_blank(),
+        axis.title.x = element_text(size = 15),
+        axis.text.x = element_text(size = 14),
+        legend.title = element_text(size = 18),
+        legend.text = element_text(size = 15),
+        title = element_text(size=16),
+        legend.key.size = unit(1.5, "cm"))
+
+#plot for obstruction of legal process cases
+ggplot(obs_comb_coef.df, aes(y=midpoint, x=index, color=estimate,shape=desc)) +
+    geom_pointrange(aes(ymin=lower, ymax=upper), size=0.8, linewidth=1.5) +
+    coord_flip() +
+  scale_color_manual(
+    values = c("black", "red", "orange", 
+               "green4", "blue", "purple",
+               "hotpink"),
+    labels = new_names
+    ) +
+  geom_hline(yintercept = 0, linetype=2) +
+  labs(x="", y="Estimate Values", color="Regression Coefficient \n Estimate", 
+       shape="Case Type", title="Plot of 95% Credible Intervals for Regression Coefficient Estimates for \n Obstruction of Legal Process (Obs) and non-Obstruction of Legal Process (non-Obs) Cases") +
+  theme(axis.text.y=element_blank(),
+        axis.ticks.y=element_blank(),
+        axis.title.x = element_text(size = 17),
+        axis.text.x = element_text(size = 14),
+        legend.title = element_text(size = 18),
+        legend.text = element_text(size = 15),
+        title = element_text(size=16),
+        legend.key.size = unit(1.5, "cm"))
+
+#plot for 911 call cases
+ggplot(call911_comb_coef.df, aes(y=midpoint, x=index, color=estimate,shape=desc)) +
+    geom_pointrange(aes(ymin=lower, ymax=upper), size=0.8, linewidth=1.5) +
+    coord_flip() +
+  scale_color_manual(
+    values = c("black", "red", "orange", 
+               "green4", "blue", "purple",
+               "hotpink"),
+    labels = new_names
+    ) +
+  geom_hline(yintercept = 0, linetype=2) +
+  labs(x="", y="Estimate Values", color="Regression Coefficient \n Estimate", 
+       shape="Case Type", title="Plot of 95% Credible Intervals for Regression Coefficient Estimates \n for Cases where 911 was Called and Not Called") +
+  theme(axis.text.y=element_blank(),
+        axis.ticks.y=element_blank(),
+        axis.title.x = element_text(size = 15),
+        axis.text.x = element_text(size = 14),
+        legend.title = element_text(size = 18),
+        legend.text = element_text(size = 17),
+        title = element_text(size=16),
+        legend.key.size = unit(1.5, "cm"))
+
+#plot for Wards 8 and 9 cases
+ggplot(wards_comb_coef.df, aes(y=midpoint, x=index, color=estimate,shape=desc)) +
+    geom_pointrange(aes(ymin=lower, ymax=upper), size=0.8, linewidth=1.5) +
+    coord_flip() +
+  scale_color_manual(
+    values = c("black", "red", "orange", 
+               "green4", "blue", "purple",
+               "hotpink"),
+    labels = new_names
+    ) +
+  geom_hline(yintercept = 0, linetype=2) +
+  labs(x="", y="Estimate Values", color="Regression Coefficient \n Estimate", 
+       shape="Case Type", title="Plot of 95% Credible Intervals for Regression Coefficient Estimates \n for Ward 8 & Ward 9 Cases") +
+  theme(axis.text.y=element_blank(),
+        axis.ticks.y=element_blank(),
+        axis.title.x = element_text(size = 15),
+        axis.text.x = element_text(size = 14),
+        legend.title = element_text(size = 18),
+        legend.text = element_text(size = 15),
+        title = element_text(size=16),
+        legend.key.size = unit(1.5, "cm"))
+
+#plot for GF murder time period cases
+ggplot(gf_murder_comb_coef.df, aes(y=midpoint, x=index, color=estimate,shape=desc)) +
+    geom_pointrange(aes(ymin=lower, ymax=upper), size=0.8, linewidth=1.5) +
+    coord_flip() +
+  scale_color_manual(
+    values = c("black", "red", "orange", 
+               "green4", "blue", "purple",
+               "hotpink"),
+    labels = new_names
+    ) +
+  geom_hline(yintercept = 0, linetype=2) +
+  labs(x="", y="Estimate Values", color="Regression Coefficient \n Estimate", 
+       shape="Case Type", title="Plot of 95% Credible Intervals for Regression Coefficient Estimates \n for Incidents Before, During, and After George Floyd's Murder") +
+  theme(axis.text.y=element_blank(),
+        axis.ticks.y=element_blank(),
+        axis.title.x = element_text(size = 15),
+        axis.text.x = element_text(size = 14),
+        legend.title = element_text(size = 18),
+        legend.text = element_text(size = 15),
+        title = element_text(size=16),
+        legend.key.size = unit(1.5, "cm"))
+
+#effect size (two different ways to calculate--difference?)
+ess(sus_lgcp_mcmc)
+effectiveSize(sus_lgcp_mcmc)
+
+# write_csv(call911_comb_coef.df, "/Users/ayaklos/Desktop/Stats\ Comps/Datasets/call911_comb_coef.csv")
+# write_csv(wards_comb_coef.df, "/Users/ayaklos/Desktop/Stats\ Comps/Datasets/wards_comb_coef.df")
+```

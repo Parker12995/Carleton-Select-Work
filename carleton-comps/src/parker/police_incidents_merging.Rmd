@@ -1,0 +1,135 @@
+---
+title: "police_incidents_merging"
+output: pdf_document
+date: "2023-01-27"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(lubridate)
+library(mice)
+library(ggasym)
+```
+
+## R Markdown
+
+```{r}
+Police23 <- read.csv("../../data/original/Police Incidents/Police_Incidents_2023.csv")
+Police22 <- read.csv("../../data/original/Police Incidents/Police_Incidents_2022.csv")
+Police21 <- read.csv("../../data/original/Police Incidents/Police_Incidents_2021.csv")
+Police20 <- read.csv("../../data/original/Police Incidents/Police_Incidents_2020.csv")
+Police19 <- read.csv("../../data/original/Police Incidents/Police_Incidents_2019.csv")
+Police18Pims <- 
+  read.csv("../../data/original/Police Incidents/Police_Incidents_2018_PIMS.csv")
+Police18 <- read.csv("../../data/original/Police Incidents/Police_Incidents_2018.csv")
+Police17 <- read.csv("../../data/original/Police Incidents/Police_Incidents_2017.csv")
+Police16 <- read.csv("../../data/original/Police Incidents/Police_Incidents_2016.csv")
+Police15 <- read.csv("../../data/original/Police Incidents/Police_Incidents_2015.csv")
+Police14 <- read.csv("../../data/original/Police Incidents/Police_Incidents_2014.csv")
+Police13 <- read.csv("../../data/original/Police Incidents/Police_Incidents_2013.csv")
+
+Police1923<-rbind(Police23, Police22, Police21, Police20, Police19, Police18Pims)
+Police1718<-rbind(Police18, Police17)
+Police16
+Police1316<-rbind(Police16, Police15, Police14, Police13)
+Police1316<-Police1316 %>%
+  rename(OBJECTID = ESRI_OID)
+Police1318<-rbind(Police1718, Police1316)
+```
+
+```{r}
+Police1923<- Police1923 %>%
+  select(-c(OBJECTID, centerLat, centerLong)) %>%
+  rename(PublicAddress = publicaddress, CaseNumber = caseNumber,
+         Precinct = precinct, Offense = offense, GBSID=centergbsid,
+         Lat = X, Long = Y, X = centerX, Y = centerY, Neighborhood = neighborhood,
+         LastUpdateDate = LastUpdateDateETL)
+
+Police1318 <- Police1318 %>%
+  select(-OBJECTID) %>%
+  rename(CaseNumber = CCN)
+```
+
+
+```{r}
+Police12 <- read.csv("../../data/original/Police Incidents/Police_Incidents_2012.csv")
+Police11 <- read.csv("../../data/original/Police Incidents/Police_Incidents_2011.csv")
+Police10 <- read.csv("../../data/original/Police Incidents/Police_Incidents_2010.csv")
+
+Police1012 <- rbind(Police12, Police11, Police10)
+Police1012 <- Police1012 %>% select(-c(ESRI_OID)) %>% rename(CaseNumber = CCN)
+
+Police1018 <- rbind(Police1318, Police1012)
+Police1018 <- Police1018 %>%
+  mutate(CaseNumber = gsub(" ", "", CaseNumber), Time = gsub('.{3}$', '', Time), 
+         BeginDate = gsub('.{3}$', '', BeginDate)) %>%
+  select(-c(ControlNbr)) #Isn't present in later datasets, irrelevant column
+
+Police1923 <- Police1923 %>%
+  mutate(beginTime = str_pad(beginTime, 4, pad="0")) %>%
+  mutate(beginTime = sub("(\\d{2})$", ":\\1", beginTime)) %>%
+  mutate(beginDate = ymd_hms(beginDate) + hm(beginTime)) %>%
+  rename(ReportedDate = reportedDateTime, BeginDate = beginDate, 
+         Time = beginTime, Description = description, 
+         EnteredDate = enteredDate, LastChanged = lastchanged) %>%
+  select(-c(reportedDate, reportedTime)) %>%
+  mutate(BeginDate = as.POSIXct(BeginDate, format="%Y-%m-%d %H:%M:%S", tz = "UTC"))
+
+Police1018 <- Police1018 %>%
+  mutate(BeginDate = as.POSIXct(BeginDate, format="%Y/%m/%d %H:%M:%S", tz = "UTC"))
+#Had to include tz = "UTC" otherwise there'd be a time shift problem when merging
+#The two datasets
+
+Police_Incidents <- rbind(Police1923, Police1018)
+```
+
+
+```{r}
+Police_Incidents$Neighborhood <- toupper(Police_Incidents$Neighborhood)
+
+Police_Incidents$Offense <- gsub(" ", "",Police_Incidents$Offense)
+
+Police_Incidents$Description <- Police_Incidents$Description %>%
+  str_replace_all(" +(?!\\w)","") %>%
+  toupper()
+
+Police_Incidents$Description[Police_Incidents$Description == "1ST DEG DOMES ASSLT"] <- "1ST DEG DOMES ASLT"
+Police_Incidents$Description[Police_Incidents$Description == "ON-LINE THEFT"] <- "ONLINE THEFT"
+
+table(Police_Incidents$Neighborhood)
+table(Police_Incidents$Offense)
+table(Police_Incidents$Description)
+```
+
+```{r}
+#fixing lat/long issue
+x <- str_detect(Police_Incidents$Long, "-9")
+if(x == "True"){
+  swap_cols(Police_Incidents, Lat, Long)
+}
+IncidentsC<-Police_Incidents %>%
+  filter(str_detect(Lat, "-9") == FALSE)
+IncidentsE<-Police_Incidents %>%
+  filter(str_detect(Lat, "-9") == TRUE) %>%
+  swap_cols(Lat, Long)
+Police_Incidents<-rbind(IncidentsC, IncidentsE)
+```
+
+Writing the csv file to the working folder:
+
+```{r}
+write.csv(Police_Incidents, "../../data/working/Police_Incidents.csv", row.names=FALSE)
+```
+
+
+Assess missingness:
+
+```{r}
+md.pattern(Police_Incidents)
+sum(is.na(Police_Incidents$GBSID))/length(Police_Incidents$GBSID)
+sum(is.na(Police_Incidents$UCRCode))/length(Police_Incidents$UCRCode)
+sum(is.na(Police_Incidents$Precinct))/length(Police_Incidents$Precinct)
+```
+
+

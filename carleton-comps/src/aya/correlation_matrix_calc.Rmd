@@ -1,0 +1,38 @@
+---
+title: "Correlation plots"
+author: "Aya Klos"
+date: "2023-04-20"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(corrplot)
+library(tigris)
+library(tidycensus)
+```
+
+```{r}
+#download ward 9 block groups
+load("/Users/ayaklos/Documents/GitHub/carleton_comps_22_23/data/working/ward_9_blockgroups/Ward9_Blocks.Rdata")
+```
+
+```{r}
+cor.dat <- ward9_blocks@data
+cor.dat <- cor.dat[,c(20, 32, 37, 39:40, 42)]
+colnames(cor.dat) <- c("Median Household Income", "Total Population", "Percent Unemployed", "Percent Foodstamps", "Percent Female", "Herfindahl–Hirschman Index")
+cor_dat.mat <- cor(cor.dat)
+
+col <- colorRampPalette(c("#BB4444", "#EE9988", "#FFFFFF", "#77AADD", "#4477AA"))
+corrplot(cor_dat.mat, method="color", col=col(200),  
+         type="upper", order="hclust", 
+         addCoef.col = "black", # Add coefficient of correlation
+         tl.col="black", tl.srt=45, #Text label color and rotation
+         diag=FALSE 
+         )
+```
+
+
+
+
+

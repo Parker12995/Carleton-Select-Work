@@ -1,0 +1,322 @@
+---
+title: "Missingness analysis for use of force"
+author: "Zhihan Yang"
+output: pdf_document
+---
+
+### Packages
+
+```{r}
+library(mice)
+library(lubridate)
+library(dplyr)
+```
+
+```{r}
+force_raw <- read.csv("../../../data/original/Police_Use_of_Force.csv")
+```
+
+```{r}
+head(force_raw)
+```
+
+```{r}
+colnames(force_raw)
+```
+
+### Missingness pattern
+
+```{r}
+md.pattern(force_raw, rotate.names = T)
+```
+
+```{r}
+force_sub <- read.csv("../../data/original/Police_Use_of_Force.csv")
+force_sub$X[force_raw$X == 0] = NA
+force_sub$Y[force_raw$Y == 0] = NA
+force_sub$Problem[force_raw$Problem == ""] = NA
+force_sub$Is911Call[force_raw$Is911Call == ""] = NA
+force_sub$PrimaryOffense[force_raw$PrimaryOffense == ""] = NA
+force_sub$SubjectInjury[force_raw$SubjectInjury == ""] = NA
+force_sub$SubjectRole[force_raw$SubjectRole == ""] = NA
+force_sub$ForceType[force_raw$ForceType == ""] = NA
+force_sub$Race[force_raw$Race == "" | force_raw$Race == "Unknown" | force_raw$Race == "not recorded"] = NA
+force_sub$Sex[force_raw$Sex == "" | force_raw$Sex == "Unknown" | force_raw$Sex == "not recorded"] = NA
+force_sub$EventAge[force_raw$EventAge < 0] = NA
+force_sub$TypeOfResistance[force_raw$TypeOfResistance == ""] = NA
+force_sub$Precinct[force_raw$Precinct == ""] = NA
+force_sub$Neighborhood[force_raw$Neighborhood == ""] = NA
+force_sub$CenterLatitude[force_raw$CenterLatitude == 0] = NA
+force_sub$CenterLongitude[force_raw$CenterLongitude == 0] = NA
+force_sub$CenterX[force_raw$CenterX == 0] = NA
+force_sub$CenterY[force_raw$CenterY == 0] = NA
+md.pattern(force_sub, rotate.names = T)
+```
+
+### X (M)
+
+```{r}
+# X == 0 is considered as NA
+hist(force_raw$X, breaks=100)
+hist(force_raw$X[force_raw$X < 0], breaks=100)
+```
+
+```{r}
+table(force_raw$X < 0)
+```
+
+```{r}
+hist(ymd_hms(force_raw$ResponseDate), breaks="day")
+hist(ymd_hms(force_raw$ResponseDate)[force_raw$X == 0], breaks="day")
+```
+
+### Y (M)
+
+```{r}
+# Y == 0 is considered NA
+hist(force_raw$Y, breaks=100)
+hist(force_raw$Y[force_raw$Y > 0], breaks=100)
+```
+
+```{r}
+length(which(force_raw$X == 0))
+length(which(force_raw$Y == 0))
+sum(which(force_raw$X == 0) == which(force_raw$Y == 0))
+```
+
+### PoliceUseOfForceID
+
+```{r}
+table(is.na(force_raw$PoliceUseOfForceID))
+```
+
+```{r}
+hist(force_raw$PoliceUseOfForceID)
+```
+
+### CaseNumber (M) - Special Attention
+
+```{r}
+hist(as.numeric(sapply(force_raw$CaseNumber, nchar)))
+```
+
+```{r}
+head(force_raw$CaseNumber[which(as.numeric(sapply(force_raw$CaseNumber, nchar)) > 9)])
+```
+
+```{r}
+head(force_raw$CaseNumber[which(as.numeric(sapply(force_raw$CaseNumber, nchar)) < 9)])
+```
+
+### ResponseDate
+
+```{r}
+hist(ymd_hms(force_raw$ResponseDate), breaks="days")
+```
+
+### Problem (M)
+
+```{r}
+# "" is considered NA
+unique(force_raw$Problem)
+```
+
+```{r}
+table(force_raw$Problem == "")
+```
+
+### Is911Call (M)
+
+```{r}
+# "" represents NA
+unique(force_raw$Is911Call)
+table(force_raw$Is911Call)
+```
+
+### PrimaryOffense (M)
+
+```{r}
+# "" represents NA
+unique(force_raw$PrimaryOffense)
+```
+
+### SubjectInjury (M)
+
+```{r}
+# "" represents NA
+unique(force_raw$SubjectInjury)
+```
+
+### ForceReportNumber 
+
+```{r}
+unique(force_raw$ForceReportNumber)
+```
+
+### SubjectRole (M)
+
+```{r}
+# "" represents NA
+unique(force_raw$SubjectRole)
+```
+
+### SubjectRoleNumber (M)
+
+```{r}
+# NA exists
+unique(force_raw$SubjectRoleNumber)
+```
+
+### ForceType (M)
+
+```{r}
+# "" represents NA
+unique(force_raw$ForceType)
+```
+
+### ForceTypeAction (M)
+
+```{r}
+# no missing value but it's unclear what "0" means
+unique(force_raw$ForceTypeAction)
+```
+
+### Race (M)
+
+```{r}
+# "" and "Unknown" and "not recorded" represents NA
+unique(force_raw$Race)
+```
+
+### Sex (M)
+
+```{r}
+# "" and "Unknown" and "not recorded" represents NA
+unique(force_raw$Sex)
+```
+
+### EventAge (M)
+
+```{r}
+# -1786 and NA represents NA
+unique(force_raw$EventAge)
+```
+
+```{r}
+hist(force_raw$EventAge[force_raw$EventAge >= 0])
+```
+
+### TypeOfResistance (M)
+
+```{r}
+# "" represents NA
+# what is "X?
+# there seems to be duplicates, like tensed vs Tensed vs TENSED
+unique(force_raw$TypeOfResistance)
+```
+
+### Precinct (M)
+
+```{r}
+# "" represnets NA
+unique(force_raw$Precinct)
+```
+
+### Neighborhood (M)
+
+```{r}
+# "" represents NA
+unique(force_raw$Neighborhood)
+```
+
+### TotalCityCallsForYear (M)
+
+```{r}
+unique(force_raw$TotalCityCallsForYear)
+```
+
+```{r}
+# we see that for rows without response date the call number is 0
+force_raw %>%
+  select(ResponseDate, TotalCityCallsForYear) %>%
+  mutate(ResponseDate=year(ymd_hms(ResponseDate))) %>%
+  unique()
+```
+
+
+### TotalPrecinctCallsForYear
+
+```{r}
+unique(force_raw$TotalPrecinctCallsForYear)
+```
+
+```{r}
+# TotalPrecinctCallsForYear is 0 when ResponseDate is NA or Precint is NA
+force_raw %>%
+  select(ResponseDate, Precinct, TotalPrecinctCallsForYear) %>%
+  mutate(ResponseDate=year(ymd_hms(ResponseDate))) %>%
+  unique()
+```
+
+### TotalNeighborhoodCallsForYear
+
+Should be similar with the previous two variables
+
+```{r}
+unique(force_raw$TotalNeighborhoodCallsForYear)
+```
+
+### CenterGBSID
+
+What is this variable?
+
+```{r}
+length(force_raw$CenterGBSID)
+length(unique(force_raw$CenterGBSID))
+```
+
+### CenterLatitude (M)
+
+```{r}
+hist(force_raw$CenterLatitude[force_raw$CenterLatitude != 0])
+```
+
+```{r}
+force_raw[force_raw$CenterLatitude == 0, ]
+```
+
+
+### CenterLongitude (M)
+
+```{r}
+hist(force_raw$CenterLongitude[force_raw$CenterLongitude != 0])
+```
+
+```{r}
+force_raw[force_raw$CenterLongitude == 0, ]
+```
+
+### CenterX (M)
+
+```{r}
+hist(force_raw$CenterX[force_raw$CenterX != 0])
+```
+
+### CenterY (M)
+
+```{r}
+hist(force_raw$CenterX[force_raw$CenterY != 0])
+```
+
+### DateAdded
+
+```{r}
+unique(force_raw$DateAdded)
+```
+
+### OBJECTID
+
+```{r}
+length(force_raw$OBJECTID)
+length(unique(force_raw$OBJECTID))
+```

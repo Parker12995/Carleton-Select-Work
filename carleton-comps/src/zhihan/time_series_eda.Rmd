@@ -1,0 +1,98 @@
+---
+title: "Time Series EDA"
+author: "Zhihan Yang"
+---
+
+```{r}
+library(lubridate)
+library(dplyr)
+library(ggplot2)
+```
+
+```{r}
+tail(original_data)
+```
+
+
+```{r}
+original_data <- read.csv("../../data/original/Police_Use_of_Force.csv")
+data <- original_data[original_data$X != 0 & original_data$Y != 0, ]
+
+# OPTION: look at only Ward 9*
+data <- data %>%
+    filter(Neighborhood %in% c("Central",
+                               "Corcoran",
+                               "East Phillips",
+                               "Longfellow",
+                               "Midtown Phillips",
+                               "Powderhorn Park"
+                               ))
+
+# option 1
+# data$ResponseDate <- as.POSIXlt(data$ResponseDate, format="%Y/%m/%d %H:%M:%S", tz=Sys.timezone())
+# option 2
+data$ResponseDate <- ymd_hms(data$ResponseDate)
+data$Hour <- hour(data$ResponseDate)
+data$Week <- week(data$ResponseDate)
+data$Month <- month(data$ResponseDate)
+data$Year <- year(data$ResponseDate)
+# OPTION: too little data for 2023
+data <- data[data$Year != 2023, ]  
+data$YearMonth <- data$Year + (data$Month - 1) / 12
+
+# additional processing
+
+# OPTION: look at total number of use-of-force cases vs calls
+data$Is911Call <- ifelse(data$Is911Call=="Yes", 1, 0)
+data$One <- 1
+```
+
+```{r}
+# TODO: try POSIXlt to get a non-char variable
+hist(data$ResponseDate, breaks="month")
+```
+
+```{r}
+data
+```
+
+```{r}
+# TODO: after mid 2021, new categories of forces are being recorded
+# TODO: try taking out the new categories
+data %>% 
+    group_by(YearMonth) %>%
+    summarize(Count = sum(One)) %>%
+    ggplot(aes(x=YearMonth, y=Count)) + 
+    geom_point(stat="identity") + 
+    geom_line(stat="identity") + 
+    # geom_smooth(method="loess", n=1000, span=0.05, se=F) + 
+    geom_vline(xintercept=2020 + 0.3636, color="red") + 
+    scale_x_continuous(breaks = round(seq(min(data$YearMonth), max(data$YearMonth), by = 1), 0))
+```
+
+```{r}
+data %>% 
+    group_by(Year) %>%
+    summarize(Count = sum(One)) %>%
+    ggplot(aes(x=Year, y=Count)) + 
+    geom_bar(stat="identity")
+```
+
+```{r}
+data %>% 
+    group_by(Month) %>%
+    summarize(Count = sum(One)) %>%
+    ggplot(aes(x=Month, y=Count)) + 
+    geom_bar(stat="identity")
+```
+
+```{r}
+data %>% 
+    group_by(Hour) %>%
+    summarize(Count = sum(One)) %>%
+    ggplot(aes(x=Hour, y=Count)) + 
+    geom_bar(stat="identity")
+```
+
+
+

@@ -1,0 +1,101 @@
+
+```{r}
+library(ggmap)
+```
+
+```{r}
+library(dplyr)
+library(sf)
+library(ggplot2)
+library(ggmap)
+library(MASS)
+library(fields)
+library(tidyverse)
+library(sp)
+library(tigris)
+library(ggmap)
+library(tidycensus)
+library(maditr)
+library(spdep)
+library(spatialreg)
+library(gridExtra)
+library(sf)
+library(spatstat)
+```
+
+```{r}
+ward9_map <- ggmap(get_map(c(left = -93.29, bottom = 44.923, 
+                     right = -93.217, top = 44.973), source = "stamen"))
+```
+
+```{r}
+knots <- read.csv("../../../../../data/working/ward_9_blockgroups/71_knots.csv")
+#samples <- read.csv("../../../../../data/working/ward_9_blockgroups/use_of_force/lgcp_samples.csv")
+load("../../../../../data/working/ward_9_blockgroups/samples_bg_prop_pts_no3.Rdata")
+means <- colMeans(samples_bg_prop_pts_no3)
+gp_means <- means[5:75]
+knots$gp_estimate <- gp_means #add estimates for gp to corresponding knots
+knots.df <- knots
+```
+
+```{r}
+# obs_pts_and_covs <- read.csv("../../data/working/ward_9_blockgroups/use_of_force/obs_points_with_bg_level_cov.csv")
+# obs_pts_and_covs$perc_white <- obs_pts_and_covs$total_white/obs_pts_and_covs$total_pop
+# obs_pts_and_covs$total_pop_norm <- obs_pts_and_covs$total_pop/max(obs_pts_and_covs$total_pop)
+# n_uof = nrow(obs_pts_and_covs)
+# covs <- as.matrix(obs_pts_and_covs[,c("perc_white", "perc_unemployed", "total_pop_norm")])
+# covs <- cbind(rep(1, nrow(covs)), covs)
+# 
+# sim_pts_and_covs <- read.csv("../../data/working/ward_9_blockgroups/over_simpoints_cov_10each.csv")
+# sim_pts_and_covs$perc_white <- sim_pts_and_covs$total_white/sim_pts_and_covs$total_pop
+# sim_pts_and_covs$total_pop_norm <- sim_pts_and_covs$total_pop/max(sim_pts_and_covs$total_pop)
+# n_sim = nrow(sim_pts_and_covs)
+# sim_covs <- as.matrix(sim_pts_and_covs[,c("perc_white", "perc_unemployed", "total_pop_norm")])
+# sim_covs <- cbind(rep(1, nrow(sim_covs)), sim_covs)
+# 
+# log_intensity_obs <- as.matrix(covs) %*% as.matrix(means)
+# log_intensity_sim <- as.matrix(sim_covs) %*% as.matrix(means)
+```
+
+```{r}
+# sum
+#load("../../../../../data/working/ward_9_blockgroups/Ward9_Blocks.Rdata")
+
+coordinates(knots) <- ~lon+lat
+proj4string(knots) <- proj4string(ward9_blocks)
+over_knots_bg_in_ward9 <- over(knots, ward9_blocks)
+
+
+```
+
+```{r}
+over_knots_bg_in_ward9$perc_white <- over_knots_bg_in_ward9$total_white/over_knots_bg_in_ward9$total_pop
+over_knots_bg_in_ward9$total_pop_norm <- over_knots_bg_in_ward9$total_pop/max(over_knots_bg_in_ward9$total_pop)
+
+covs_knots <- over_knots_bg_in_ward9[, c("perc_white", "perc_unemployed", "total_pop_norm")]
+covs_knots <- cbind(rep(1, nrow(covs_knots)), covs_knots)
+beta_means <- colMeans(samples_bg_prop_pts_no3[,1:4])
+gp_means <- colMeans(samples_bg_prop_pts_no3[,5:75])
+
+log_intensities <- as.matrix(covs_knots) %*% as.matrix(beta_means) + gp_means
+log_intensities_exp <- exp(log_intensities)
+length(log_intensities)
+
+knots.df$log_intensities <- as.vector(log_intensities)
+knots.df$log_intensities_exp <- as.vector(log_intensities_exp)
+
+ward9_map +
+  geom_point(data= knots.df, aes(x = lon, y = lat, color = log_intensities), size=6, shape=15) +
+  scale_color_distiller(palette="Spectral")
+
+ward9_map +
+  geom_point(data= knots.df, aes(x = lon, y = lat, color = log_intensities_exp), size=6, shape=15) +
+  scale_color_distiller(palette="Spectral")
+```
+
+```{r}
+# log intensity for the knots
+ward9_map +
+  geom_point(data= knots.df, aes(x = lon, y = lat, color = gp_estimate), size=6, shape=15) + 
+  scale_color_distiller(palette="Spectral")
+```

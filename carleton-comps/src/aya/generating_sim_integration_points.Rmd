@@ -1,0 +1,184 @@
+---
+title: "Generating Simulated Integration Points"
+author: "Aya Klos"
+date: "2023-04-05"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(sp)
+library(tigris)
+library(ggmap)
+library(tidycensus)
+library(maditr)
+library(spdep)
+library(spatialreg)
+library(gridExtra)
+library(sf)
+library(spatstat)
+```
+
+```{r}
+set.seed(1342343)
+
+load("/Users/ayaklos/Documents/GitHub/carleton_comps_22_23/data/working/ward_9_blockgroups/Ward9_Blocks.Rdata")
+minn_bg.sf <- st_as_sf(ward9_blocks)
+
+# n_it <- ncol(minn_bg.sf)+1
+# 
+# for (i in 1:nrow(minn_bg.sf)) {
+#   minn_bg.sf[i, n_it] <- area(st_transform(st_union(minn_bg.sf[i, ]),crs = 6345))
+# }
+# 
+# minn_bg.sf$tract_area <- minn_bg.sf$V51
+# minn_bg.sf <- minn_bg.sf[, -n_it]
+
+#Same number of integration points for each tract
+# minn_bg.sf$num_sim_points <- 15
+# minn_bg.sf$num_sim_points <- 10
+
+#Scaling number of integration points by size of block group
+# minn_bg.sf$num_sim_points <- floor(minn_bg.sf$tract_area / min(minn_bg.sf$tract_area)) * 8
+
+#Store coordinates for integration points in this dataframe
+# sim_points_coor <- data.frame(matrix(ncol = 2, nrow = 0))
+# colnames(sim_points_coor) <- c('x', 'y')
+
+# for (i in 1:nrow(minn_bg.sf)) {
+#   all_bg_loop <- st_transform(st_union(minn_bg.sf[i, ]),crs = 6345)
+#   all_bg_win_loop <- all_bg_loop %>% as.owin()
+#   sim_points_loop <- runifpoint(minn_bg.sf[i, ]$num_sim_points, win=all_bg_win_loop)
+#   sim_points_coor_loop <- sim_points_loop %>% as.data.frame()
+#   sim_points_coor <- rbind(sim_points_coor, sim_points_coor_loop)
+# }
+
+#create integration points by uniformly distributing them over window
+all_bg_loop <- st_transform(st_union(minn_bg.sf),crs = 6345)
+all_bg_win_loop <- all_bg_loop %>% as.owin()
+sim_points_coor <- runifpoint(20000,win=all_bg_win_loop)
+plot(sim_points_coor)
+sim_points_coor <- sim_points_coor %>% as.data.frame()
+
+coordinates(sim_points_coor) <- ~x+y
+proj4string(sim_points_coor) <- proj4string(as_Spatial(all_bg_loop))
+sim_points_coor <- spTransform(sim_points_coor, proj4string(ward9_blocks))
+sim_points_coor.df <- as.data.frame(sim_points_coor@coords)
+
+# write_csv(data.frame(sim_points_coor.df), "/Users/ayaklos/Documents/GitHub/carleton_comps_22_23/data/working/integration_points/simpoints_15each.csv")
+# write_csv(data.frame(sim_points_coor.df), "/Users/ayaklos/Documents/GitHub/carleton_comps_22_23/data/working/integration_points/simpoints_10each.csv")
+# write_csv(data.frame(sim_points_coor.df), "/Users/ayaklos/Documents/GitHub/carleton_comps_22_23/data/working/integration_points/simpoints_scalebyarea_mult8.csv")
+```
+
+```{r}
+over_simpoints_cov <- over(sim_points_coor, ward9_blocks)
+sim_points_census <- cbind(sim_points_coor.df, over_simpoints_cov)
+
+# write_csv(data.frame(sim_points_census), "/Users/ayaklos/Documents/GitHub/carleton_comps_22_23/data/working/ward_9_blockgroups/over_simpoints_cov_20000int_points.csv")
+# write_csv(data.frame(sim_points_census), "/Users/ayaklos/Documents/GitHub/carleton_comps_22_23/data/working/ward_9_blockgroups/over_simpoints_cov_10000int_points.csv")
+# write_csv(data.frame(sim_points_census), "/Users/ayaklos/Documents/GitHub/carleton_comps_22_23/data/working/ward_9_blockgroups/over_simpoints_cov_15each.csv")
+# write_csv(data.frame(sim_points_census), "/Users/ayaklos/Documents/GitHub/carleton_comps_22_23/data/working/ward_9_blockgroups/over_simpoints_cov_10each.csv")
+# write_csv(data.frame(sim_points_census), "/Users/ayaklos/Documents/GitHub/carleton_comps_22_23/data/working/ward_9_blockgroups/over_simpoints_cov_scalebyarea_mult8.csv")
+```
+
+```{r}
+ggmap(get_map(c(left=-93.29, bottom=44.923,
+                right=-93.217, top=44.973), source="stamen")) +
+  geom_point(data=sim_points_coor.df, aes(x=x, y=y))
+```
+
+
+Doing the same thing, but for ward 8
+
+```{r}
+#setwd("~/GitHub/carleton_comps_22_23/src/parker")
+```
+
+
+```{r}
+# load("../../data/working/ward_8_blockgroups/Ward8_Blocks.Rdata")
+# minn_bg.sf2 <- st_as_sf(ward8_blocks)
+# 
+# n_it2 <- ncol(minn_bg.sf2)+1
+# 
+# for (i in 1:nrow(minn_bg.sf2)) {
+#   minn_bg.sf2[i, n_it2] <- area(st_transform(st_union(minn_bg.sf2[i, ]),crs = 6345))
+# }
+# 
+# minn_bg.sf2$tract_area <- minn_bg.sf2$V51
+# minn_bg.sf2 <- minn_bg.sf2[, -n_it2]
+# 
+# #Same number of integration points for each tract
+# # minn_bg.sf2$num_sim_points <- 15
+# # minn_bg.sf2$num_sim_points <- 10
+# 
+# #Scaling number of integration points by size of block group
+#  minn_bg.sf2$num_sim_points <- floor(minn_bg.sf2$tract_area / min(minn_bg.sf2$tract_area)) * 8
+# 
+# #Store coordinates for integration points in this dataframe
+# sim_points_coor2 <- data.frame(matrix(ncol = 2, nrow = 0))
+# colnames(sim_points_coor2) <- c('x', 'y')
+# 
+# set.seed(1342343)
+# for (i in 1:nrow(minn_bg.sf2)) {
+#   all_bg_loop2 <- st_transform(st_union(minn_bg.sf2[i, ]),crs = 6345)
+#   all_bg_win_loop2 <- all_bg_loop2 %>% as.owin()
+#   sim_points_loop2 <- runifpoint(minn_bg.sf2[i, ]$num_sim_points, win=all_bg_win_loop2)
+#   sim_points_coor_loop2 <- sim_points_loop2 %>% as.data.frame()
+#   sim_points_coor2 <- rbind(sim_points_coor2, sim_points_coor_loop2)
+# }
+# 
+# 
+# coordinates(sim_points_coor2) <- ~x+y
+# proj4string(sim_points_coor2) <- proj4string(as_Spatial(all_bg_loop2))
+# sim_points_coor2 <- spTransform(sim_points_coor2, proj4string(ward8_blocks))
+# sim_points_coor.df2 <- as.data.frame(sim_points_coor2@coords)
+```
+
+```{r}
+#over_simpoints_cov2 <- over(sim_points_coor2, ward8_blocks)
+#sim_points_census2 <- cbind(sim_points_coor.df2, over_simpoints_cov2)
+
+# write_csv(data.frame(sim_points_census2), "../../data/working/ward_8_blockgroups/over_simpoints_cov_15each2.csv")
+# write_csv(data.frame(sim_points_census2), "../../data/working/ward_8_blockgroups/over_simpoints_cov_10each2.csv")
+# write_csv(data.frame(sim_points_census2), "../../data/working/ward_8_blockgroups/over_simpoints_cov_scalebyarea_mult8_2.csv")
+```
+
+```{r}
+#ggmap(get_map(c(left = -93.294, bottom = 44.908, 
+#                right = -93.244, top = 44.9521), source = "stamen")) +
+#  geom_point(data=sim_points_coor.df2, aes(x=x, y=y))
+```
+
+```{r}
+#setwd("Users/pjohn/OneDrive/Documents/GitHub/carleton_comps_22_23/src/parker")
+load("../../data/working/ward_8_blockgroups/Ward8_Blocks.Rdata")
+minn_bg.sf8 <- st_as_sf(ward8_blocks)
+set.seed(1342343)
+
+all_bg_loop8 <- st_transform(st_union(minn_bg.sf8),crs = 6345)
+all_bg_win_loop8 <- all_bg_loop8 %>% as.owin()
+sim_points_coor8 <- runifpoint(10000,win=all_bg_win_loop8)
+plot(sim_points_coor8)
+sim_points_coor8 <- sim_points_coor8 %>% as.data.frame()
+
+coordinates(sim_points_coor8) <- ~x+y
+proj4string(sim_points_coor8) <- proj4string(as_Spatial(all_bg_loop8))
+sim_points_coor8 <- spTransform(sim_points_coor8, proj4string(ward8_blocks))
+sim_points_coor.df8 <- as.data.frame(sim_points_coor8@coords)
+
+over_simpoints_cov8 <- over(sim_points_coor8, ward8_blocks)
+sim_points_census8 <- cbind(sim_points_coor.df8, over_simpoints_cov8)
+
+# write_csv(data.frame(sim_points_census8), "../../data/working/ward_8_blockgroups/over_simpoints_cov_10000int_points2.csv")
+```
+
+```{r}
+ggmap(get_map(c(left = -93.294, bottom = 44.908, 
+                right = -93.244, top = 44.9521), source = "stamen")) +
+  geom_point(data=sim_points_coor.df8, aes(x=x, y=y))
+```
+
+
+

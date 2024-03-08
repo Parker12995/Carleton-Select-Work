@@ -1,0 +1,607 @@
+---
+title: "Obstruction_of_Justice"
+output: pdf_document
+date: "2023-02-23"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(dplyr)
+library(tidyverse)
+library(ggplot2)
+library(ggmap)
+library(sf)
+library(sp)
+```
+
+## Obstruction of Justice
+
+What can we learn from cases that are tagged as obstructions of the legal process?
+
+```{r}
+#setwd("~/GitHub/carleton_comps_22_23")
+#Only encoded in Police_Force and Police_Incidents
+Police_Incidents <- read.csv("data/working/Police_Incidents.csv")
+Police_Force <- read.csv("data/original/Police_Use_of_Force.csv")
+```
+
+
+```{r}
+OBS_Police_Incidents <- Police_Incidents %>%
+  filter(str_detect(Description, "OBS"))
+
+OBS_Police_Force <- Police_Force %>%
+  filter(str_detect(PrimaryOffense, "OBS"))
+
+no_OBS_Police_Force <- Police_Force %>%
+  filter(!(str_detect(PrimaryOffense, "OBS")))
+
+test1 <- OBS_Police_Incidents %>%
+  mutate(CaseNumber = str_trim(substring(CaseNumber, 5))) %>%
+  arrange(CaseNumber)
+
+test2 <- OBS_Police_Force %>%
+  mutate(CaseNumber = str_trim(str_replace_all(CaseNumber, "-", ""))) %>%
+  arrange(CaseNumber)
+
+#No overlapping cases
+test1 %>%
+  filter(CaseNumber %in% test2$CaseNumber)
+
+
+minn_map <- ggmap(get_map(c(left = -93.35, bottom = 44.88, 
+                            right = -93.18, top = 45.06), source = "stamen"))
+
+ward9_map <- ggmap(get_map(c(left = -93.28, bottom = 44.933, 
+                         right = -93.227, top = 44.963), source = "stamen"))
+
+mn_wards <- st_read("data/original/City_Council_Wards/WARDS.shp") 
+
+ward9 <-st_crop(mn_wards, xmin = -93.28, xmax = -93.227, ymin = 44.933, ymax = 44.963) %>%
+  as_Spatial()
+
+minn_wards <- st_read("data/original/City_Council_Wards/WARDS.shp") %>%
+  as_Spatial()
+wards_fortify <- broom::tidy(minn_wards)
+minn_wards$id <- row.names(minn_wards)
+wards_fortify <- left_join(wards_fortify, minn_wards@data)
+
+minn_map + 
+  geom_point(data = OBS_Police_Incidents, aes(x=Long, y=Lat, color = factor(Description))) +
+  xlab("Longitude") +
+  ylab("Latitude") +
+  geom_polygon(data= wards_fortify, 
+                        aes(x = long, y = lat, group = group), 
+                        fill = NA, col = "black", linewidth = .2) + 
+  labs(color = "Description")
+
+minn_map + 
+  geom_point(data = OBS_Police_Force, aes(x=X, y=Y, color = factor(SubjectInjury))) +
+  xlab("Longitude") +
+  ylab("Latitude") +
+  geom_polygon(data= wards_fortify, 
+                        aes(x = long, y = lat, group = group), 
+                        fill = NA, col = "black", linewidth = .2) + 
+  labs(color = "Subject Injury")
+
+minn_map +
+  stat_density_2d(data = OBS_Police_Force, aes(x=X, y=Y,fill = ..level..), geom = "polygon", alpha = .5) +
+  geom_polygon(data= wards_fortify, 
+                        aes(x = long, y = lat, group = group), 
+                        fill = NA, col = "black", size = .5) +
+  scale_fill_gradient2(low = "yellow", mid = "red", high = "purple",midpoint = 250) +
+  labs(title = "Police Force Density (all of MSP)")
+
+minn_map +
+  stat_density_2d(data = no_OBS_Police_Force, aes(x=X, y=Y,fill = ..level..), geom = "polygon", alpha = .5) +
+  geom_polygon(data= wards_fortify, 
+                        aes(x = long, y = lat, group = group), 
+                        fill = NA, col = "black", size = .5) +
+  scale_fill_gradient2(low = "yellow", mid = "red", high = "purple",midpoint = 250) +
+  labs(title = "Police Force Density (all of MSP)")
+```
+
+Subsetting the use of force data to just ward 9
+
+```{r}
+#Police use of force
+sp_force_data <- Police_Force
+coordinates(sp_force_data) <- ~X+Y
+proj4string(minn_wards) #check projection
+proj4string(sp_force_data) <- CRS("+proj=longlat +datum=WGS84 +no_defs")
+
+sp_force_data <- spTransform(sp_force_data, proj4string(minn_wards))
+
+over_data_force <- over(sp_force_data, minn_wards)
+
+force_data_full <- cbind(Police_Force, over_data_force)
+
+ward9_Force <- force_data_full %>%
+  filter(BDNUM == 9)
+
+ward9_OBS_Police_Force <- ward9_Force %>%
+  filter(str_detect(PrimaryOffense, "OBS"))
+
+ward9_no_OBS_Police_Force <- ward9_Force %>%
+  filter(!(str_detect(PrimaryOffense, "OBS")))
+
+
+#Police Incidents
+sp_incidents_data <- Police_Incidents
+coordinates(sp_incidents_data) <- ~Long+Lat
+proj4string(minn_wards) #check projection
+proj4string(sp_incidents_data) <- CRS("+proj=longlat +datum=WGS84 +no_defs")
+
+sp_incidents_data <- spTransform(sp_incidents_data, proj4string(minn_wards))
+
+over_data_incidents <- over(sp_incidents_data, minn_wards)
+
+incidents_data_full <- cbind(Police_Incidents, over_data_incidents)
+
+ward9_Incidents <- incidents_data_full %>%
+  filter(BDNUM == 9)
+
+ward9_OBS_Police_Incidents <- ward9_Incidents %>%
+  filter(str_detect(Description, "OBS"))
+
+ward9_no_OBS_Police_Incidents <- ward9_Incidents %>%
+  filter(!(str_detect(Description, "OBS")))
+```
+
+Density plots of ward 9 based on use of force data; no big differences
+
+```{r}
+load("data/working/ward_9_blockgroups/Ward9_Blocks.Rdata")
+polygons <- as(ward9_blocks, "SpatialPolygons")
+poly_one <- st_transform(st_union(st_as_sf(polygons)), crs=CRS("+proj=longlat +datum=NAD83 +no_defs"))
+ward9_blocks_one <- poly_one %>% as_Spatial()
+
+proj4string(ward9_blocks_one) #check projection
+ward9_one_bg_tidy <- broom::tidy(ward9_blocks_one)
+ward9_blocks_one$id <- row.names(ward9_blocks_one)
+
+#ggmap(get_map(c(left = -93.28, bottom = 44.93, 
+#                         right = -93.227, top = 44.963), source = "stamen")) +
+#   geom_polygon(data= ward9_blocks_one,
+#                aes(x = long, y = lat, group = group), 
+#                col = "black", linewidth=1, fill=NA)
+
+ward9_map +
+    stat_density_2d(data = no_OBS_Police_Force, aes(x=X, y=Y, fill = ..level..), geom = "polygon", alpha = .5)+
+  geom_hline(yintercept = 44.9483, size = 1.5, color = "Yellow") + 
+   geom_polygon(data= ward9_blocks_one,
+                aes(x = long, y = lat, group = group), 
+                col = "black", linewidth=1, fill=NA) + 
+  scale_fill_gradient2(low = "yellow", mid = "red", high = "purple",midpoint = 1200) +
+  labs(title = "Police Use of Force non OBS cases") + 
+  theme(axis.text.x = element_blank(), axis.text.y = element_blank(), 
+        axis.ticks = element_blank(),
+        axis.title.y=element_blank(), axis.title.x=element_blank(),
+        plot.title = element_text(hjust = 0.5))
+
+ward9_map +
+    stat_density_2d(data = OBS_Police_Force, aes(x=X, y=Y, fill = ..level..), geom = "polygon", alpha = .5)+
+  geom_hline(yintercept = 44.9483, size = 1.5, color = "Yellow") + 
+   geom_polygon(data= ward9_blocks_one,
+                aes(x = long, y = lat, group = group), 
+                col = "black", linewidth=1, fill=NA)+
+  scale_fill_gradient2(low = "yellow", mid = "red", high = "purple",midpoint = 1200) +
+  labs(title = "Police Use of Force OBS cases") + 
+  theme(axis.text.x = element_blank(), axis.text.y = element_blank(), 
+        axis.ticks = element_blank(),
+        axis.title.y=element_blank(), axis.title.x=element_blank(),
+        plot.title = element_text(hjust = 0.5))
+```
+
+Plot for police incidents, and jittered map of police force
+
+```{r}
+ward9_map + 
+  geom_hline(yintercept = 44.9483, size = 1.5, color = "Yellow") + 
+  geom_point(data = OBS_Police_Incidents, aes(x=Long, y=Lat), color = "Blue")+
+  geom_polygon(data= ward9, 
+                        aes(x = long, y = lat, group = group), 
+                        fill = NA, col = "black", size = 1)
+
+ward9_map + 
+  geom_hline(yintercept = 44.9483, size = 1.5, color = "Yellow") + 
+  geom_point(data = OBS_Police_Force, aes(x=X, y=Y), color = "Blue", 
+              width = .0007, height = .0007)+
+  geom_polygon(data= ward9, 
+                        aes(x = long, y = lat, group = group), 
+                        fill = NA, col = "black", size = 1) + 
+  labs(title = "OBS Use of Force Points")
+
+ward9_map + 
+  geom_hline(yintercept = 44.9483, size = 1.5, color = "Yellow") + 
+  geom_jitter(data = OBS_Police_Force, aes(x=X, y=Y), color = "Blue", 
+              width = .0007, height = .0007)+
+  geom_polygon(data= ward9, 
+                        aes(x = long, y = lat, group = group), 
+                        fill = NA, col = "black", size = 1) + 
+  labs(title = "OBS Use of Force Jittered Points")
+```
+
+There doesn't seem to be significant difference in type of problem between OBS and non OBS cases.
+
+```{r}
+no_OBS_Police_Force_table <- data.frame(table(no_OBS_Police_Force$Problem)) %>%
+  rename("Problem" = "Var1") %>%
+  arrange(desc(Freq)) %>%
+  filter(!Problem == "") %>%
+  slice_max(Freq, n = 20)
+
+OBS_Police_Force_table <- data.frame(table(OBS_Police_Force$Problem)) %>%
+  rename("Problem" = "Var1") %>%
+  arrange(desc(Freq)) %>%
+  slice_max(Freq, n = 20)
+
+ggplot(no_OBS_Police_Force_table, aes(x = reorder(Problem, -Freq), 
+                                      y = Freq, fill = Problem)) +
+  geom_bar(stat = "identity", show.legend = FALSE) +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1), 
+        plot.title = element_text(hjust = 0.5)) + 
+  labs(title = "Top 20 problems for non OBS cases", x = "Problem")
+
+ggplot(OBS_Police_Force_table, aes(x = reorder(Problem, -Freq), 
+                                   y = Freq, fill = Problem)) +
+  geom_bar(stat = "identity", show.legend = FALSE) +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1), 
+        plot.title = element_text(hjust = 0.5)) + 
+  labs(title = "Top 20 problems for OBS cases", x = "Problem")
+
+kableExtra::kable(table(OBS_Police_Incidents$Description), col.names = c("Description", "Frequency"), caption = "OBS cases from Police Incidents")
+```
+
+Proportions based on race doesn't seem to be significantly different. However, the proportion of subject injuries is higher for OBS cases, but this could be due to missing values.
+
+```{r}
+#table(OBS_Police_Force$Race) / nrow(OBS_Police_Force)
+#table(no_OBS_Police_Force$Race) / nrow(no_OBS_Police_Force)
+table_OBS_race <- data.frame(table(OBS_Police_Force$Race) / nrow(OBS_Police_Force))
+table_OBS_race <- table_OBS_race %>%
+  rename(Race = Var1, Percent = Freq) %>%
+  mutate(OBS = "Yes", Percent = round(Percent, digits = 3))
+table_OBS_race[table_OBS_race == ""] <- "NA"
+
+table_no_OBS_race <- data.frame(table(no_OBS_Police_Force$Race) /
+                             nrow(no_OBS_Police_Force))
+table_no_OBS_race <- table_no_OBS_race %>%
+  rename(Race = Var1, Percent = Freq) %>%
+  mutate(OBS = "No", Percent = round(Percent, digits = 3))
+table_no_OBS_race[table_no_OBS_race == ""] <- "NA"
+  
+table2 <- rbind(table_OBS_race, table_no_OBS_race)
+
+
+ggplot(data = table2, aes(x = OBS, y = Percent, fill = Race)) + 
+  geom_bar(position = "fill", stat = "identity") + 
+  geom_text(label = paste0(table2$Percent*100, "%"), size = 3, 
+            position = position_stack(vjust = 0.5)) + 
+  labs(title = "Non OBS versus OBS cases and Race", x = "OBS Case") + 
+  theme(plot.title = element_text(hjust = 0.5))
+
+
+#testing <- OBS_Police_Force %>%
+#  filter(!(Race == ""))
+#table(testing$Race) / nrow(testing)
+
+
+table(OBS_Police_Force$SubjectInjury) / nrow(OBS_Police_Force)
+table(no_OBS_Police_Force$SubjectInjury) / nrow(no_OBS_Police_Force)
+
+table_OBS <- data.frame(table(OBS_Police_Force$SubjectInjury) / nrow(OBS_Police_Force))
+table_OBS <- table_OBS %>%
+  rename(SubjectInjury = Var1, Percent = Freq) %>%
+  mutate(OBS = "Yes", Percent = round(Percent, digits = 3))
+table_OBS[table_OBS == ""] <- "NA"
+
+table_no_OBS <- data.frame(table(no_OBS_Police_Force$SubjectInjury) /
+                             nrow(no_OBS_Police_Force))
+table_no_OBS <- table_no_OBS %>%
+  rename(SubjectInjury = Var1, Percent = Freq) %>%
+  mutate(OBS = "No", Percent = round(Percent, digits = 3))
+table_no_OBS[table_no_OBS == ""] <- "NA"
+  
+table1 <- rbind(table_OBS, table_no_OBS)
+
+#table(no_OBS_Police_Force$SubjectInjury)
+
+ggplot(data = table1, aes(x = OBS, y = Percent, fill = SubjectInjury)) + 
+  geom_bar(position = "fill", stat = "identity") + 
+  geom_text(label = paste0(table1$Percent*100, "%"), size = 3, 
+            position = position_stack(vjust = 0.5)) + 
+  labs(title = "Non OBS versus OBS cases and Subject Injury", x = "OBS Case", 
+       fill = "Subject Injury") + 
+  theme(plot.title = element_text(hjust = 0.5))
+```
+
+Type of Resistance does seem to differ for obstruction of justice cases however; could be due to non-OBS cases being more likely to be missing, but high proportion of tenses and commission of crime.
+
+```{r}
+OBS_Police_Force <- OBS_Police_Force %>%
+  mutate(TypeOfResistance = tolower(str_trim(TypeOfResistance)))
+  # %>% filter(!TypeOfResistance == "")
+OBS_Police_Force$TypeOfResistance[OBS_Police_Force$TypeOfResistance == 'commission of a crime'] <- "commission of crime" 
+OBS_Police_Force$TypeOfResistance[OBS_Police_Force$TypeOfResistance == 'fled in a vehicle'] <- "fled in vehicle" 
+table(OBS_Police_Force$TypeOfResistance)
+
+no_OBS_Police_Force <- no_OBS_Police_Force %>%
+  mutate(TypeOfResistance = tolower(str_trim(TypeOfResistance)))
+  # %>% filter(!TypeOfResistance == "")
+no_OBS_Police_Force$TypeOfResistance[no_OBS_Police_Force$TypeOfResistance == 'commission of a crime'] <- "commission of crime" 
+no_OBS_Police_Force$TypeOfResistance[no_OBS_Police_Force$TypeOfResistance == 'fled in a vehicle'] <- "fled in vehicle" 
+table(no_OBS_Police_Force$TypeOfResistance)
+
+library(forcats)
+ggplot(OBS_Police_Force, aes(x = fct_infreq(TypeOfResistance), fill = TypeOfResistance)) +
+  geom_bar(show.legend = FALSE) +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1), 
+        plot.title = element_text(hjust = 0.5)) + 
+  labs(title = "Types of resistance for OBS cases", x = "Type of Resistance")
+
+ggplot(no_OBS_Police_Force, aes(x = fct_infreq(TypeOfResistance), fill = TypeOfResistance)) +
+  geom_bar(show.legend = FALSE) +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1), 
+        plot.title = element_text(hjust = 0.5)) + 
+  labs(title = "Types of resistance for non OBS cases", x = "Type of Resistance")
+```
+
+Looking at SubjectInjury. In Police_Force_Injury, there's slightly a slightly higher percentage of white people involved compared to Police_Force, and the proportions in Police_Force_Injury and Police_Force_OBS are fairly similar (although OBS_Police_Force has around a 3% higher proportion of black people represented). However, Police_Force_Injury_OBS has a higher proportion of white people and lower percentage of black people compared to the other tables.
+
+(Maybe drug charges are more likely to be placed on black people, maybe that explains it? I don't know)
+
+```{r}
+Police_Force_Injury_OBS <- Police_Force %>%
+  filter(SubjectInjury == "Yes" & str_detect(PrimaryOffense, "OBS"))
+
+Police_Force_Injury_no_OBS <- no_OBS_Police_Force %>%
+  filter(SubjectInjury == "Yes")
+
+#table(Police_Force$Race, exclude = "") / (nrow(Police_Force)-1386) #1386 NA removed, 934 unknown, 1276 not recorded
+#table(Police_Force_Injury$Race) / nrow(Police_Force_Injury) #136 unknown, 104 not recorded
+#table(Police_Force_Injury_OBS$Race) / nrow(Police_Force_Injury_OBS) #43 unknown, 23 not recorded
+
+#table(OBS_Police_Force$Race) / nrow(OBS_Police_Force)
+
+
+table_OBS_race_inj <- data.frame(table(Police_Force_Injury_OBS$Race) / nrow(Police_Force_Injury_OBS))
+table_OBS_race_inj <- table_OBS_race_inj %>%
+  rename(Race = Var1, Percent = Freq) %>%
+  mutate(OBS = "Yes", Percent = round(Percent, digits = 3))
+table_OBS_race_inj[table_OBS_race_inj == ""] <- "NA"
+
+table_no_OBS_race_inj <- data.frame(table(Police_Force_Injury_no_OBS$Race) /
+                             nrow(Police_Force_Injury_no_OBS))
+table_no_OBS_race_inj <- table_no_OBS_race_inj %>%
+  rename(Race = Var1, Percent = Freq) %>%
+  mutate(OBS = "No", Percent = round(Percent, digits = 3))
+table_no_OBS_race_inj[table_no_OBS_race_inj == ""] <- "NA"
+  
+table3 <- rbind(table_OBS_race_inj, table_no_OBS_race_inj)
+
+
+ggplot(data = table3, aes(x = OBS, y = Percent, fill = Race)) + 
+  geom_bar(position = "fill", stat = "identity") + 
+  geom_text(label = paste0(table3$Percent*100, "%"), size = 3, 
+            position = position_stack(vjust = 0.5)) + 
+  labs(title = "Injured Subjects: Non OBS versus OBS cases and Race", x = "OBS Case") + 
+  theme(plot.title = element_text(hjust = 0.5))
+```
+
+Chemical irritant used a bit less in OBS cases. For OBS cases, knees are used a bit more, and personal mace used a bit less. The 3 most common force type actions are body weight to pin, joint lock, and punches for both.
+
+```{r}
+ggplot(no_OBS_Police_Force, aes(x = fct_infreq(ForceType), fill = ForceType)) +
+  geom_bar(show.legend = FALSE) +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1), 
+        plot.title = element_text(hjust = 0.5)) + 
+  labs(title = "Force type for non OBS cases", x = "Force Type")
+
+ggplot(OBS_Police_Force, aes(x = fct_infreq(ForceType), fill = ForceType)) +
+  geom_bar(show.legend = FALSE) +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1), 
+        plot.title = element_text(hjust = 0.5)) + 
+  labs(title = "Force type for OBS cases", x = "Force Type")
+
+ggplot(no_OBS_Police_Force, aes(x = fct_infreq(ForceTypeAction), fill = ForceType)) +
+  geom_bar(show.legend = FALSE) +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1), 
+        plot.title = element_text(hjust = 0.5)) + 
+  labs(title = "Force type action for non OBS cases", x = "Force Type Action")
+
+ggplot(OBS_Police_Force, aes(x = fct_infreq(ForceTypeAction), fill = ForceType)) +
+  geom_bar(show.legend = FALSE) +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1), 
+        plot.title = element_text(hjust = 0.5)) + 
+  labs(title = "Force type action for OBS cases", x = "Force Type Action")
+```
+
+This isn't looking at OBS cases or ward 9, but all of Minneapolis. Black subjects in use of force more likely to have a problem of fight, with suspicious vehicle and traffic law enforcement being slightly higher, while white subjects are more likely to have a problem of disturbance and emotionally disturb person.
+
+```{r}
+Police_Force_Black <- Police_Force %>%
+  filter(Race == "Black")
+
+Police_Force_White <- Police_Force %>%
+  filter(Race == "White")
+
+#testing <- ward9_OBS_Police_Force %>%
+#  filter(Race == "Black")
+
+#table(Police_Force_Black$Problem)
+
+Police_Force_table_black <- data.frame(table(Police_Force_Black$Problem)) %>%
+  rename("Problem" = "Var1") %>%
+  arrange(desc(Freq)) %>%
+  filter(!Problem == "") %>%
+  slice_max(Freq, n = 20)
+
+Police_Force_table_white <- data.frame(table(Police_Force_White$Problem)) %>%
+  rename("Problem" = "Var1") %>%
+  arrange(desc(Freq)) %>%
+  filter(!Problem == "") %>%
+  slice_max(Freq, n = 20)
+
+ggplot(Police_Force_table_black, aes(x = reorder(Problem, -Freq), 
+                                      y = Freq, fill = Problem)) +
+  geom_bar(stat = "identity", show.legend = FALSE) +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1), 
+        plot.title = element_text(hjust = 0.5)) + 
+  labs(title = "Top 20 problems for black subjects", x = "Problem")
+
+ggplot(Police_Force_table_white, aes(x = reorder(Problem, -Freq), 
+                                      y = Freq, fill = Problem)) +
+  geom_bar(stat = "identity", show.legend = FALSE) +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1), 
+        plot.title = element_text(hjust = 0.5)) + 
+  labs(title = "Top 20 problems for white subjects", x = "Problem")
+```
+
+Looking at PrimaryOffense.
+
+```{r}
+Police_Force_na <- Police_Force %>%
+  filter(Race == "Native American")
+
+Police_Force_table_na <- data.frame(table(Police_Force_na$PrimaryOffense)) %>%
+  rename("PrimaryOffense" = "Var1") %>%
+  arrange(desc(Freq)) %>%
+  filter(!PrimaryOffense == "") %>%
+  slice_max(Freq, n = 20)
+
+Police_Force_table_black <- data.frame(table(Police_Force_Black$PrimaryOffense)) %>%
+  rename("PrimaryOffense" = "Var1") %>%
+  arrange(desc(Freq)) %>%
+  filter(!PrimaryOffense == "") %>%
+  slice_max(Freq, n = 20)
+
+Police_Force_table_white <- data.frame(table(Police_Force_White$PrimaryOffense)) %>%
+  rename("PrimaryOffense" = "Var1") %>%
+  arrange(desc(Freq)) %>%
+  filter(!PrimaryOffense == "") %>%
+  slice_max(Freq, n = 20)
+
+ggplot(Police_Force_table_na, aes(x = reorder(PrimaryOffense, -Freq), 
+                                      y = Freq, fill = PrimaryOffense)) +
+  geom_bar(stat = "identity", show.legend = FALSE) +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1), 
+        plot.title = element_text(hjust = 0.5)) + 
+  labs(title = "Top 20 offenses for Native American subjects", 
+       x = "Primary Offense", y = "Frequency")
+
+ggplot(Police_Force_table_black, aes(x = reorder(PrimaryOffense, -Freq), 
+                                      y = Freq, fill = PrimaryOffense)) +
+  geom_bar(stat = "identity", show.legend = FALSE) +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1), 
+        plot.title = element_text(hjust = 0.5)) + 
+  labs(title = "Top 20 offenses for black subjects", 
+       x = "Primary Offense", y = "Frequency")
+
+ggplot(Police_Force_table_white, aes(x = reorder(PrimaryOffense, -Freq), 
+                                      y = Freq, fill = PrimaryOffense)) +
+  geom_bar(stat = "identity", show.legend = FALSE) +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1), 
+        plot.title = element_text(hjust = 0.5)) + 
+  labs(title = "Top 20 offenses for white subjects", 
+       x = "Primary Offense", y = "Frequency")
+```
+
+
+Plots based on race. Not sure how much there is to say about this.
+
+```{r}
+Police_Force_Black_OBS <- Police_Force_Black %>% 
+  filter(str_detect(PrimaryOffense, "OBS"))
+
+Police_Force_White_OBS <- Police_Force_White %>% 
+  filter(str_detect(PrimaryOffense, "OBS"))
+
+Police_Force_Both_OBS <- rbind(Police_Force_Black_OBS, Police_Force_White_OBS)
+  
+
+ward9_map +
+  geom_hline(yintercept = 44.9483, size = 1.5, color = "Yellow") +
+  geom_jitter(data = Police_Force_Black_OBS, aes(x=X, y=Y), color = "red", width = .0007, height = .0007) +
+     geom_polygon(data= ward9, 
+                        aes(x = long, y = lat, group = group), 
+                        fill = NA, col = "black", size = 1) +
+  labs(title = "OBS Cases with Black Subjects")
+
+ward9_map +
+  geom_hline(yintercept = 44.9483, size = 1.5, color = "Yellow") +
+  geom_jitter(data = Police_Force_White_OBS, aes(x=X, y=Y), color = "blue", width = .0007, height = .0007) +
+     geom_polygon(data= ward9, 
+                        aes(x = long, y = lat, group = group), 
+                        fill = NA, col = "black", size = 1) +
+  labs(title = "OBS Cases with White Subjects")
+
+ward9_map +
+  geom_hline(yintercept = 44.9483, size = 1.5, color = "Yellow") +
+  geom_jitter(data = Police_Force_Both_OBS, aes(x=X, y=Y, color = Race), width = .0007, height = .0007) +
+     geom_polygon(data= ward9, 
+                        aes(x = long, y = lat, group = group), 
+                        fill = NA, col = "black", size = 1) +
+  labs(title = "OBS Cases with White and Black Subjects")
+```
+
+Density plots of OBS cases based on race. OBS cases with black subjects seem to be more evenly spread out, while OBS cases with white subjects seem to be concentrated the most north and northeast of Powderhorn Park.
+
+```{r}
+ward9_map +
+   stat_density_2d(data = Police_Force_Black_OBS, aes(x=X, y=Y, fill = ..level..), geom = "polygon", alpha = .5) +
+  scale_fill_gradient2(low = "yellow", mid = "red", high = "purple", midpoint = 1000)+
+  geom_hline(yintercept = 44.9483, size = 1.5, color = "Yellow") + 
+   geom_polygon(data= ward9, 
+                        aes(x = long, y = lat, group = group), 
+                        fill = NA, col = "black", size = 1) +
+  labs(title = "OBS Cases with Black Subjects")
+
+ward9_map +
+   stat_density_2d(data = Police_Force_White_OBS, aes(x=X, y=Y, fill = ..level..), geom = "polygon", alpha = .5) +
+  scale_fill_gradient2(low = "yellow", mid = "red", high = "purple", midpoint = 1200)+
+  geom_hline(yintercept = 44.9483, size = 1.5, color = "Yellow") + 
+   geom_polygon(data= ward9, 
+                        aes(x = long, y = lat, group = group), 
+                        fill = NA, col = "black", size = 1) +
+  labs(title = "OBS Cases with White Subjects")
+```
+
+Density plots of injured versus uninjured subjects. Injured subjects are clustered most around the old precinct, as well as northeast of Powderhorn Park. Uninjured subjects are clustered most northwest of Powderhorn Park, and East Phillips Park. It appears that a high proportion of cases near the precinct resulted in injuries.
+
+```{r}
+Police_Force_Injury_OBS <- OBS_Police_Force %>%
+  filter(SubjectInjury == "Yes")
+
+Police_Force_noInjury_OBS <- OBS_Police_Force %>%
+  filter(SubjectInjury == "No")
+
+ward9_map +
+   stat_density_2d(data = Police_Force_Injury_OBS, aes(x=X, y=Y, fill = ..level..), geom = "polygon", alpha = .5) +
+  scale_fill_gradient2(low = "yellow", mid = "red", high = "purple", midpoint = 1000)+
+  geom_hline(yintercept = 44.9483, size = 1.5, color = "Yellow") + 
+   geom_polygon(data= ward9, 
+                        aes(x = long, y = lat, group = group), 
+                        fill = NA, col = "black", size = 1) +
+  labs(title = "OBS Cases with Injured Subjects") + 
+    theme(axis.text.x = element_blank(), axis.text.y = element_blank(), 
+        axis.ticks = element_blank(),
+        axis.title.y=element_blank(), axis.title.x=element_blank())
+
+ward9_map +
+   stat_density_2d(data = Police_Force_noInjury_OBS, aes(x=X, y=Y, fill = ..level..), geom = "polygon", alpha = .5) +
+  scale_fill_gradient2(low = "yellow", mid = "red", high = "purple", midpoint = 1000)+
+  geom_hline(yintercept = 44.9483, size = 1.5, color = "Yellow") + 
+   geom_polygon(data= ward9, 
+                        aes(x = long, y = lat, group = group), 
+                        fill = NA, col = "black", size = 1) +
+  labs(title = "OBS Cases with Uninjured Subjects") + 
+    theme(axis.text.x = element_blank(), axis.text.y = element_blank(), 
+        axis.ticks = element_blank(),
+        axis.title.y=element_blank(), axis.title.x=element_blank())
+```
+
+
+
+
+

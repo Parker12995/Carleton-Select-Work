@@ -1,0 +1,31 @@
+---
+title: "George Floyd"
+output: html_document
+date: "2023-03-08"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(sf)
+```
+
+```{r}
+Police_Force <- read_csv("carleton_comps_22_23/data/original/Police_Use_of_Force.csv")
+Police_Incidents <- read_csv("carleton_comps_22_23/data/working/Police_Incidents.csv")
+Crime_Data <- read_csv("carleton_comps_22_23/data/original/Crime_Data.csv")
+mn_wards <- st_read("carleton_comps_22_23/data/original/City_Council_Wards/WARDS.shp") 
+ward9_map <- ggmap(get_map(c(left = -93.28, bottom = 44.933, 
+                         right = -93.227, top = 44.963), source = "stamen"))
+ward9 <-st_crop(mn_wards, xmin = -93.28, xmax = -93.227, ymin = 44.933, ymax = 44.963) %>%
+  as_Spatial()
+MayPG <- Crime_Data %>%
+  filter(str_detect(Occurred_Date, "2020/05/2")| str_detect(Occurred_Date, "2020/06"))
+ward9_map +
+  stat_density_2d(data = MayPG, aes(x=X, y=Y,fill = ..level..), geom = "polygon", alpha = .5) +
+  geom_hline(yintercept = 44.9483, size = 1.5, color = "blue") +
+  geom_polygon(data= ward9, 
+                        aes(x = long, y = lat, group = group), 
+                        fill = NA, col = "black", size = 1) +
+  scale_fill_gradient2(low = "yellow", mid = "red", high = "purple",midpoint = 1750)
+```

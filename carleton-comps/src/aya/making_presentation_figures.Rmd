@@ -1,0 +1,140 @@
+---
+title: "Making Figures"
+author: "Aya Klos"
+date: "2023-04-23"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+#load in Minneapolis block groups
+load("/Users/ayaklos/Documents/GitHub/carleton_comps_22_23/data/working/Census_Blocks_Data.Rdata")
+#load in Ward 9 block groups
+load("/Users/ayaklos/Documents/GitHub/carleton_comps_22_23/data/working/ward_9_blockgroups/Ward9_Blocks.Rdata")
+#load in Minneapolis wards
+mn_wards <- st_read("/Users/ayaklos/Documents/GitHub/carleton_comps_22_23/data/original/City_Council_Wards/WARDS.shp")
+
+mn_ward9 <- mn_wards[mn_wards$BDNUM==9,] %>% as_Spatial() #only ward 9
+
+#load in maps
+minn_map <- ggmap(get_map(c(left = -93.334, bottom = 44.888, 
+                         right = -93.19, top = 45.055), source = "stamen"))
+
+ward9_map <- ggmap(get_map(c(left = -93.28, bottom = 44.933, 
+                         right = -93.227, top = 44.963), source = "stamen"))
+
+proj4string(mn_ward9)
+mn_ward9 <- spTransform(mn_ward9, CRS("+proj=longlat +datum=NAD83 +no_defs")) 
+proj4string(mn_ward9)
+
+#add polygon coordinates to minneapolis_blocks
+proj4string(minneapolis_blocks) #check projection
+minn_bg_tidy <- broom::tidy(minneapolis_blocks)
+minneapolis_blocks$id <- row.names(minneapolis_blocks)
+minn_bg_tidy <- left_join(minn_bg_tidy, minneapolis_blocks@data)
+
+#add polygon coordinates to ward9_blocks
+proj4string(ward9_blocks) #check projection
+ward9_bg_tidy <- broom::tidy(ward9_blocks)
+ward9_blocks$id <- row.names(ward9_blocks)
+ward9_bg_tidy <- left_join(ward9_bg_tidy, ward9_blocks@data)
+
+#add polygon coordinates to mn_ward9
+proj4string(mn_ward9) #check projection
+ward9_tidy <- broom::tidy(mn_ward9)
+mn_ward9$id <- row.names(mn_ward9)
+ward9_tidy <- left_join(ward9_tidy, mn_ward9@data)
+
+#download point-level data
+#get rid of incorrect coordinates (0,0)
+use_of_force_data <- read.csv("/Users/ayaklos/Documents/GitHub/carleton_comps_22_23/data/original/Police_Use_of_Force.csv")
+use_of_force_data <- use_of_force_data[use_of_force_data$X != 0,]
+
+crime_data <- read.csv("/Users/ayaklos/Documents/GitHub/carleton_comps_22_23/data/original/Crime_Data.csv")
+crime_data <- crime_data[crime_data$X != 0,]
+
+police_incident_data <- read.csv("/Users/ayaklos/Documents/GitHub/carleton_comps_22_23/data/working/Police_Incidents.csv")
+police_incident_data <- police_incident_data[police_incident_data$X != 0,]
+
+polygons <- as(minneapolis_blocks, "SpatialPolygons")
+poly_one <- st_transform(st_union(st_as_sf(polygons)), crs=CRS("+proj=longlat +datum=NAD83 +no_defs"))
+minn_blocks_one <- poly_one %>% as_Spatial()
+
+proj4string(minn_blocks_one) #check projection
+minn_one_bg_tidy <- broom::tidy(minn_blocks_one)
+minn_blocks_one$id <- row.names(minn_blocks_one)
+
+```
+
+```{r}
+minn_map +
+   geom_polygon(data= minn_bg_tidy,
+                aes(x = long, y = lat, group = group,
+                    fill = total_pop), col = "black") +
+   geom_polygon(data= ward9_tidy,
+                aes(x = long, y = lat, group = group),
+                col = "red", fill = NA, linewidth=2) +
+  labs(fill = "Total Population",
+       title = "Total Population by Census Blocks (Minneapolis)") +
+  theme(axis.title = element_blank(),
+        axis.text = element_blank(),
+        axis.ticks = element_blank()) +
+scale_fill_distiller(palette = "Spectral")
+
+ward9_map +
+   geom_polygon(data= ward9_bg_tidy,
+                aes(x = long, y = lat, group = group,
+                    fill = total_pop), col = "black") +
+  labs(fill = "Total Population",
+       title = "Total Population by Census Blocks (Ward 9)") +
+  theme(axis.title = element_blank(),
+        axis.text = element_blank(),
+        axis.ticks = element_blank()) +
+scale_fill_distiller(palette = "Spectral")
+
+minn_map +
+   geom_polygon(data= minn_blocks_one,
+                aes(x = long, y = lat, group = group), 
+                col = "blue", linewidth=1, fill=NA) +
+   geom_point(data=use_of_force_data, aes(x=X, y=Y), alpha=0.3, size=1) +
+  geom_polygon(data= ward9_tidy,
+                aes(x = long, y = lat, group = group),
+                col = "red", fill = NA, linewidth=1) +
+  labs(title = "Police Use of Force Incidents \n in Minneapolis") +
+  theme(axis.title = element_blank(),
+        axis.text = element_blank(),
+        axis.ticks = element_blank()) 
+
+minn_map +
+   geom_polygon(data= minn_blocks_one,
+                aes(x = long, y = lat, group = group), 
+                col = "blue", linewidth=1, fill=NA) +
+   geom_point(data=crime_data, aes(x=X, y=Y), alpha=0.3, size=1) +
+  geom_polygon(data= ward9_tidy,
+                aes(x = long, y = lat, group = group),
+                col = "red", fill = NA, linewidth=1) +
+  labs(title = "Crimes in Minneapolis") +
+  theme(axis.title = element_blank(),
+        axis.text = element_blank(),
+        axis.ticks = element_blank()) 
+
+minn_map +
+   geom_polygon(data= minn_blocks_one,
+                aes(x = long, y = lat, group = group), 
+                col = "blue", linewidth=1, fill=NA) +
+   geom_point(data=police_incident_data, aes(x=Long, y=Lat), alpha=0.3, size=1) +
+  geom_polygon(data= ward9_tidy,
+                aes(x = long, y = lat, group = group),
+                col = "red", fill = NA, linewidth=1) +
+  labs(title = "Police Incidents in Minneapolis") +
+  theme(axis.title = element_blank(),
+        axis.text = element_blank(),
+        axis.ticks = element_blank()) 
+```
+
+
+
+

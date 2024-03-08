@@ -1,0 +1,14 @@
+---
+title: "W1 (Wed) EDA - Crime Data"
+output: html_document
+date: "2023-01-05"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+Crime_Data<-read.csv("Crime_Data.csv")
+dim(Crime_Data)
+```

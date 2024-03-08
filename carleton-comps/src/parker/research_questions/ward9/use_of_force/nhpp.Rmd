@@ -1,0 +1,176 @@
+---
+title: "NIMBLE code for NHPP"
+---
+
+```{r}
+library(nimble)
+library(ggplot2)
+library(dplyr)
+library(coda)
+library(sf)
+library(sp)
+library(spatstat)
+```
+
+```{r}
+######################load data###########################################################################
+
+#bind in another script sim_points and the overlayed data below
+obs_pts_and_covs <- read.csv("../../data/working/ward_9_blockgroups/use_of_force/obs_points_with_bg_level_cov.csv")
+sim_pts_and_covs <- read.csv("../../data/working/ward_9_blockgroups/over_simpoints_cov_10each.csv")
+load("../../data/working/ward_9_blockgroups/Ward9_Blocks.Rdata")
+ward9_blocks.sf <- st_as_sf(ward9_blocks)
+for (i in 1:nrow(ward9_blocks.sf)) {
+  ward9_blocks.sf[i, 39] <- area(st_transform(st_union(ward9_blocks.sf[i, ]),crs = 6345))
+}
+```
+
+```{r}
+head(obs_pts_and_covs)
+```
+
+```{r}
+head(knots)
+```
+
+```{r}
+###
+### Jitter points so no exact location is repeated
+###
+#need to slightly jitter points that are duplicated
+dup_uof <- obs_pts_and_covs[which(duplicated(obs_pts_and_covs[,c("Y", "X")])),]
+obs_pts_and_covs <- obs_pts_and_covs[-which(duplicated(obs_pts_and_covs[,c("Y", "X")])),] #remove, to combine later
+
+set.seed(3)
+jitter_lat <- runif(n = nrow(dup_uof), 0.0001, 0.0005) #only goes to fifth decimal point
+jitter_lon <- runif(n = nrow(dup_uof), 0.0001, 0.0005) #only goes to fifth decimal point
+plot(dup_uof$X, dup_uof$Y)
+dup_uof$Y <- dup_uof$Y + jitter_lat
+dup_uof$X <- dup_uof$X + jitter_lon
+plot(dup_uof$X, dup_uof$Y)
+#combine after jittering
+obs_pts_and_covs <- rbind(obs_pts_and_covs, dup_uof) %>% as.data.frame()
+
+#clean up
+rm(dup_uof, jitter_lat, jitter_lon)
+```
+
+
+```{r}
+#obs_pts_and_covs$perc_white <- obs_pts_and_covs$total_white/obs_pts_and_covs$total_pop
+#obs_pts_and_covs$total_pop_norm <- obs_pts_and_covs$total_pop/max(obs_pts_and_covs$total_pop)
+n_uof = nrow(obs_pts_and_covs)
+covs <- as.matrix(obs_pts_and_covs[,c("perc_white", "perc_unemployed", "total_pop_norm")])
+
+sim_pts_and_covs$perc_white <- sim_pts_and_covs$total_white/sim_pts_and_covs$total_pop
+sim_pts_and_covs$total_pop_norm <- sim_pts_and_covs$total_pop/max(sim_pts_and_covs$total_pop)
+n_sim = nrow(sim_pts_and_covs)
+sim_covs <- as.matrix(sim_pts_and_covs[,c("perc_white", "perc_unemployed", "total_pop_norm")])
+```
+
+```{r}
+dim(covs)
+dim(sim_covs)
+```
+
+```{r}
+code <- nimbleCode({
+  
+  beta0 ~ dnorm(0, sd = 100)
+  beta1 ~ dnorm(0, sd = 100)
+  beta2 ~ dnorm(0, sd = 100)
+  beta3 ~ dnorm(0, sd = 100)
+  
+  XB[1:n_uof] <- beta0 + beta1*covs[,1] + beta2*covs[,2] + beta3*covs[,3]
+  XB_int[1:n_sim] <- beta0 + beta1*sim_covs[,1] + beta2*sim_covs[,2] + beta3*sim_covs[,3]
+  
+  int <- (area / n_sim) * sum(exp(XB_int[1:n_sim]))
+
+  })
+```
+
+```{r}
+Rmodel <- nimbleModel(
+  code, 
+  data = list(),
+  inits = list(
+    beta0 = 0,
+    beta1 = 0,
+    beta2 = 0,
+    beta3 = 0
+  ),
+  constants = list(
+    sim_covs = sim_covs, 
+    covs = covs, 
+    area = sum(ward9_blocks.sf[, 39]$V39),
+    n_uof = n_uof, 
+    n_sim = n_sim
+  )
+)
+```
+
+```{r}
+Rmodel$initializeInfo()
+```
+
+```{r}
+llFun <- nimbleFunction(
+  setup = function(model) { },
+  run = function() {
+    ll <- sum(model$XB) - model$int
+    returnType(double())
+    return(ll[1])
+  }
+)
+
+RllFun <- llFun(Rmodel)
+
+mcmcConf <- configureMCMC(Rmodel, nodes = NULL)
+
+mcmcConf$addSampler(target = "beta0", type = "RW_llFunction",
+                    control = list(llFunction = RllFun, includesTarget = FALSE))
+mcmcConf$addSampler(target = "beta1", type = "RW_llFunction",
+                    control = list(llFunction = RllFun, includesTarget = FALSE))
+mcmcConf$addSampler(target = "beta2", type = "RW_llFunction",
+                    control = list(llFunction = RllFun, includesTarget = FALSE))
+mcmcConf$addSampler(target = "beta3", type = "RW_llFunction",
+                    control = list(llFunction = RllFun, includesTarget = FALSE))
+
+mcmcConf$printSamplers()
+
+Rmcmc <- buildMCMC(mcmcConf)
+```
+
+```{r}
+mcmcConf$getUnsampledNodes()
+```
+
+```{r}
+set.seed(42)
+samples <- runMCMC(Rmcmc, 5000)
+```
+
+```{r}
+colMeans(samples)
+```
+
+```{r}
+n_samples <- nrow(samples)
+
+ggplot() + 
+  geom_line(aes(x=1:n_samples, y=samples[, 1]), color="red") + 
+  geom_line(aes(x=1:n_samples, y=samples[, 2]), color="green") + 
+  geom_line(aes(x=1:n_samples, y=samples[, 3]), color="blue") +
+  geom_line(aes(x=1:n_samples, y=samples[, 4]), color="purple") +
+  xlab("Number of samples") + 
+  ylab("Value")
+```
+
+```{r}
+effectiveSize(samples)
+```
+
+```{r}
+samples_df <- data.frame(samples)
+write.csv(samples_df, "../../../../../data/working/ward_9_blockgroups/use_of_force/nhpp_samples.csv", row.names = F)
+```

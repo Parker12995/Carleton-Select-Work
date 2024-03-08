@@ -1,0 +1,102 @@
+
+```{r}
+library(ggmap)
+```
+
+```{r}
+library(dplyr)
+library(sf)
+library(ggplot2)
+library(ggmap)
+library(MASS)
+library(fields)
+library(tidyverse)
+library(sp)
+library(tigris)
+library(ggmap)
+library(tidycensus)
+library(maditr)
+library(spdep)
+library(spatialreg)
+library(gridExtra)
+library(sf)
+library(spatstat)
+```
+
+```{r}
+samples <- read.csv("../../../../../data/working/ward_9_blockgroups/use_of_force/nhpp_samples.csv")
+means <- colMeans(samples)
+means
+```
+
+```{r}
+# obs_pts_and_covs <- read.csv("../../data/working/ward_9_blockgroups/use_of_force/obs_points_with_bg_level_cov.csv")
+# obs_pts_and_covs$perc_white <- obs_pts_and_covs$total_white/obs_pts_and_covs$total_pop
+# obs_pts_and_covs$total_pop_norm <- obs_pts_and_covs$total_pop/max(obs_pts_and_covs$total_pop)
+# n_uof = nrow(obs_pts_and_covs)
+# covs <- as.matrix(obs_pts_and_covs[,c("perc_white", "perc_unemployed", "total_pop_norm")])
+# covs <- cbind(rep(1, nrow(covs)), covs)
+# 
+# sim_pts_and_covs <- read.csv("../../data/working/ward_9_blockgroups/over_simpoints_cov_10each.csv")
+# sim_pts_and_covs$perc_white <- sim_pts_and_covs$total_white/sim_pts_and_covs$total_pop
+# sim_pts_and_covs$total_pop_norm <- sim_pts_and_covs$total_pop/max(sim_pts_and_covs$total_pop)
+# n_sim = nrow(sim_pts_and_covs)
+# sim_covs <- as.matrix(sim_pts_and_covs[,c("perc_white", "perc_unemployed", "total_pop_norm")])
+# sim_covs <- cbind(rep(1, nrow(sim_covs)), sim_covs)
+# 
+# log_intensity_obs <- as.matrix(covs) %*% as.matrix(means)
+# log_intensity_sim <- as.matrix(sim_covs) %*% as.matrix(means)
+```
+
+```{r}
+ward9_map <- ggmap(get_map(c(left = -93.29, bottom = 44.923, 
+                     right = -93.217, top = 44.973), source = "stamen"))
+```
+
+```{r}
+# sum
+
+use_of_force_data <- read.csv("../../../../../data/original/Police_Use_of_Force.csv")
+load("../../../../../data/working/ward_9_blockgroups/Ward9_Blocks.Rdata")
+
+coordinates(use_of_force_data) <- ~X+Y
+proj4string(use_of_force_data) <- proj4string(ward9_blocks)
+over_bg_in_ward9 <- over(use_of_force_data, ward9_blocks)
+
+agg_dat <- plyr::count(over_bg_in_ward9, c('GEOID'))
+colnames(agg_dat) <- c("GEOID", "count")
+
+ward9_blocks@data <- left_join(ward9_blocks@data, agg_dat)
+
+ward9_blocks_fortify <- broom::tidy(ward9_blocks)
+ward9_blocks$id <- row.names(ward9_blocks)
+ward9_blocks_fortify <- left_join(ward9_blocks_fortify, ward9_blocks@data)
+
+ward9_map +
+  geom_polygon(data= ward9_blocks_fortify, aes(x = long, y = lat, group = group, fill = count), col = "black") + 
+  scale_fill_distiller(palette="Spectral")
+```
+
+```{r}
+ward9_blocks_fortify$perc_white <- ward9_blocks_fortify$total_white/ward9_blocks_fortify$total_pop
+ward9_blocks_fortify$total_pop_norm <- ward9_blocks_fortify$total_pop/max(ward9_blocks_fortify$total_pop)
+
+covs_tract <- ward9_blocks_fortify[, c("perc_white", "perc_unemployed", "total_pop_norm")]
+covs_tract <- cbind(rep(1, nrow(covs_tract)), covs_tract)
+
+log_intensities <- as.matrix(covs_tract) %*% as.matrix(means)
+
+length(log_intensities)
+```
+
+```{r}
+# log intensity
+ward9_map +
+  geom_polygon(data= ward9_blocks_fortify, aes(x = long, y = lat, group = group, fill = log_intensities), col = "black") + 
+  scale_fill_distiller(palette="Spectral")
+```
+
+```{r}
+
+```
+

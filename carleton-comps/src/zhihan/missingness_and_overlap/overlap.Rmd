@@ -1,0 +1,134 @@
+---
+title: "Overlap analysis of 3 datasets (not considering missingness)"
+author: "Zhihan Yang"
+output: pdf_document
+---
+
+### Packages
+
+
+```{r}
+library(mice)
+library(lubridate)
+library(dplyr)
+library(tidyr)
+library(VennDiagram)
+```
+
+```{r}
+crime <- read.csv("../../../data/original/Crime_Data.csv")
+crime$Reported_Date <- ymd_hms(crime$Reported_Date)  # occurred date is less appropriate here
+
+force <- read.csv("../../../data/original/Police_Use_of_Force.csv")
+force$ResponseDate <- ymd_hms(force$ResponseDate)
+
+incidents <- read.csv("../../../data/working/Police_Incidents.csv")
+incidents$ReportedDate <- ymd_hms(incidents$ReportedDate)
+```
+
+```{r}
+crime$Case_Number[1:10]
+crime$Case_NumberAlt[1:10]
+```
+
+```{r}
+new_case_numbers = c()
+
+for (case_number in force$CaseNumber) {
+  
+  year_original <- strsplit(case_number, "-")[[1]][1]
+  year_new <- paste("MP20", year_original, sep="")
+  
+  num_original <- strsplit(case_number, "-")[[1]][2]
+  num_new <- trimws(num_original, which=c("left"), whitespace="0")
+  
+  new_case_numbers <- append(new_case_numbers, paste(year_new, num_new, sep=""))
+  
+}
+
+force$CaseNumberNew <- new_case_numbers
+```
+
+```{r}
+force$CaseNumber[1:10]
+force$CaseNumberNew[1:10]
+```
+
+```{r}
+# 2019 - 2022
+min(crime$Reported_Date)
+max(crime$Reported_Date)
+
+# 2008 - 2022
+min(na.omit(force$ResponseDate))
+max(na.omit(force$ResponseDate))
+
+# 2010 - 2022
+min(incidents$ReportedDate)
+max(incidents$ReportedDate)
+```
+
+## 2019 - 2022 venn diagram
+
+```{r}
+force_2019_2022 <- force %>% 
+  filter(year(ResponseDate) >= 2019)
+min(na.omit(force_2019_2022$ResponseDate)) 
+max(na.omit(force_2019_2022$ResponseDate))
+```
+
+```{r}
+incidents_2019_2022 <- incidents %>%
+  filter(year(ReportedDate) >= 2019)
+min(incidents_2019_2022$ReportedDate)
+max(incidents_2019_2022$ReportedDate)
+```
+
+```{r}
+crime$Case_Number[1:10]
+crime$Case_NumberAlt[1:10]
+```
+
+
+```{r}
+force_2019_2022$CaseNumberNew[1:10]
+```
+
+```{r}
+incidents_2019_2022$CaseNumber[1:10]
+```
+
+```{r}
+venn.diagram(
+  x = list(crime$Case_NumberAlt, force_2019_2022$CaseNumberNew, incidents_2019_2022$CaseNumber),
+  category.names = c("Crime" , "Force (19-22) " , "Incidents (19-22)"),
+  filename = 'all_three.png',
+  output=T
+)
+```
+
+## 2010 - 2022 venn diagram (for force and incidents only)
+
+```{r}
+force_2010_2022 <- force %>% 
+  filter(year(ResponseDate) >= 2010)
+min(na.omit(force_2010_2022$ResponseDate))
+max(na.omit(force_2010_2022$ResponseDate))
+```
+
+```{r}
+incidents_2010_2022 <- incidents %>%
+  filter(year(ReportedDate) >= 2010)
+min(incidents_2010_2022$ReportedDate)
+max(incidents_2010_2022$ReportedDate)
+```
+
+```{r}
+venn.diagram(
+  x = list(force_2010_2022$CaseNumberNew, incidents_2010_2022$CaseNumber),
+  category.names = c("Force (10-22) " , "Incidents (10-22)"),
+  filename = 'just_two.png',
+  output=T
+)
+```
+

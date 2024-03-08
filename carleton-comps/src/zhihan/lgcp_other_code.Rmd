@@ -1,0 +1,82 @@
+```{r}
+xs = seq(0, 20, length.out=100)
+ggplot() + 
+  geom_density(data=NULL, aes(x=samples_no_burnin[, ncol(samples_no_burnin)], color="Posterior")) + 
+  geom_line(data=NULL, aes(x=xs, y=dinvgamma(xs, 1, 1), color="Prior")) + 
+  scale_color_manual(name = "Distributions\nover Sigma", values = c("Prior" = "black", "Posterior" = "red")) + 
+  ylab("Density") + 
+  xlab("Value")
+```
+
+# Surface
+
+```{r}
+coordinates(knots) <- ~lon+lat
+proj4string(knots) <- proj4string(ward9_blocks)
+over_knots_bg_in_ward9 <- over(knots, ward9_blocks)
+
+covs_knots <- over_knots_bg_in_ward9[, c("total_pop", "med_hh_income", "perc_female", "herfendahl", "perc_unemployed", "perc_foodstamp")]
+covs_knots$total_pop = covs_knots$total_pop / 2193
+covs_knots$med_hh_income = covs_knots$med_hh_income / 110208
+covs_knots <- cbind(rep(1, nrow(covs_knots)), covs_knots)
+```
+
+```{r}
+beta_means <- colMeans(samples_no_burnin[,1:7])
+gp_means <- colMeans(samples_no_burnin[,8:(ncol(samples)-2)] * samples_no_burnin[,ncol(samples)-1])
+
+log_intensities <- as.matrix(covs_knots) %*% as.matrix(beta_means) + gp_means
+log_intensities_no_gp <- as.matrix(covs_knots) %*% as.matrix(beta_means)
+log_intensities_exp <- exp(log_intensities)
+```
+
+
+```{r}
+ggplot() +
+  geom_density2d_filled(data=obs_pts, aes(x=X, y=Y)) +
+  coord_fixed()
+```
+
+```{r}
+ggplot() +
+  geom_point(data=as.data.frame(knots), aes(x = lon, y = lat, color = log_intensities_no_gp), size=5, shape=15) +
+  #geom_point(data=obs_pts, aes(x=x, y=y), size=2, shape=1, color="black") +
+  scale_color_viridis() +
+  coord_fixed()
+```
+
+```{r}
+ggplot() + 
+  geom_point(data=as.data.frame(knots), aes(x = lon, y = lat, color = log_intensities), size=5, shape=15) + 
+  scale_color_viridis() + 
+  coord_fixed()
+```
+
+```{r}
+r <- raster(xmn=-10, ymn=-10, xmx=10, ymx=10, res=2)
+counts <- as.matrix(rasterize(obs_pts, r, fun='count'))
+counts <- counts[nrow(counts):1, ]
+counts <- c(t(counts))
+area <- 400 / 100
+intensities <- counts / area
+log_intensities_truth <- log(intensities)
+
+# c(t()) means as vector by row
+ggplot() + 
+  geom_point(data=knots, aes(x = x, y = y, color = log_intensities_truth), size=15, shape=15) +
+  scale_color_viridis() + 
+  coord_fixed()
+```
+
+```{r}
+ggplot(data=NULL, aes(x=log_intensities_no_gp, y=log_intensities_truth)) + 
+  geom_point() + 
+  geom_smooth(method='lm', formula=y~x, se=F)
+```
+
+```{r}
+ggplot(data=NULL, aes(x=log_intensities, y=log_intensities_truth)) + 
+  geom_point() + 
+  geom_smooth(method='lm', formula=y~x, se=F) + 
+  coord_fixed()
+```

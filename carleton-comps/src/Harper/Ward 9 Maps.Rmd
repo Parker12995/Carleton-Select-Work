@@ -1,0 +1,363 @@
+---
+title: "W1 (Wed) EDA - Crime Data"
+output: html_document
+date: "2023-01-05"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(ggplot2)
+library(sf)
+library(ggmap)
+```
+
+```{r}
+Crime_Data <- read_csv("../../data/original/Crime_Data.csv")
+dim(Crime_Data)
+Police_Force <- read_csv("../../data/original/Police_Use_of_Force.csv")
+Police_Incidents <- read_csv("../../data/working/Police_Incidents.csv")
+
+```
+
+```{r}
+#Figuring out maps and outlines from shapefile
+ward9_map <- ggmap(get_map(c(left = -93.28, bottom = 44.933, 
+                         right = -93.227, top = 44.963), source = "stamen"))
+
+mn_wards <- st_read("../../data/original/City_Council_Wards/WARDS.shp") 
+
+ward9 <-st_crop(mn_wards, xmin = -93.28, xmax = -93.227, ymin = 44.933, ymax = 44.963) %>%
+  as_Spatial()
+
+
+minn_map +
+  geom_polygon(data = mn_wards, aes(x=long, y=lat, group = group), fill = NA, color = "black")
+
+#911 Call mapping for ward 9
+ward9_map +
+  geom_hline(yintercept = 44.9483, size = 1.5, color = "Yellow") +
+  geom_point(data = Police_Force, aes(x=X, y=Y, color = Is911Call)) +
+  geom_polygon(data= ward9, 
+                        aes(x = long, y = lat, group = group), 
+                        fill = NA, col = "black", size = 1)
+
+ward9_map +
+  geom_hline(yintercept = 44.9483, size = 1.5, color = "Yellow") +
+  geom_polygon(data= ward9, 
+                        aes(x = long, y = lat, group = group), 
+                        fill = NA, col = "black", size = 1)
+  
+
+ward9_map + 
+  geom_jitter(data = Police_Force, aes(x=X, y=Y, color = Is911Call), 
+              width = .0007, height = .0007) +
+geom_hline(yintercept = 44.9483, size = 1.5, color = "Yellow")  +
+  geom_polygon(data= ward9, 
+                        aes(x = long, y = lat, group = group), 
+                        fill = NA, col = "black", size = 1)
+  
+#crime data for ward 9
+ward9_map + 
+  geom_point(data = Crime_Data, aes(x=Longitude, y=Latitude), color = "Blue", 
+              width = .0007, height = .0007) +
+  geom_hline(yintercept = 44.9483, size = 1.5, color = "Yellow") +
+  geom_polygon(data= ward9, 
+                        aes(x = long, y = lat, group = group), 
+                        fill = NA, col = "black", size = 1)
+
+ward9_map + 
+  geom_jitter(data = Crime_Data, aes(x=Longitude, y=Latitude), 
+              width = .0007, height = .0007) +
+  geom_hline(yintercept = 44.9483, size = 1.5, color = "Yellow") +
+  geom_polygon(data= ward9, 
+                        aes(x = long, y = lat, group = group), 
+                        fill = NA, col = "red", size = 1)
+
+```
+
+```{r}
+#Ward 9 Density Plots
+#Crime Data Events
+ward9_map +
+  geom_bin2d(data = Crime_Data, aes(x=X, y=Y), alpha = .5) +
+  geom_hline(yintercept = 44.9483, size = 1.5, color = "blue") +
+  geom_polygon(data= ward9, 
+                        aes(x = long, y = lat, group = group), 
+                        fill = NA, col = "black", size = 1) +
+  scale_fill_gradient2(low = "yellow", mid = "red", high = "purple",midpoint = 400)
+
+ward9_map +
+  stat_density_2d(data = Crime_Data, aes(x=X, y=Y,fill = ..level..), geom = "polygon", alpha = .5) +
+  geom_hline(yintercept = 44.9483, size = 1.5, color = "blue") +
+  geom_polygon(data= ward9, 
+                        aes(x = long, y = lat, group = group), 
+                        fill = NA, col = "black", size = 1) +
+  scale_fill_gradient2(low = "yellow", mid = "red", high = "purple",midpoint = 1250) +
+  labs(title = "Crime Locations Density Map")
+#Important Locations
+ward9_map+
+  geom_polygon(data= ward9, 
+                        aes(x = long, y = lat, group = group), 
+                        fill = NA, col = "black", size = 1) +
+  annotate("point", x = -93.25625, y = 44.9481, colour = "purple", size = 4, shape = "diamond") +
+  annotate("point", x = -93.24875, y = 44.958, colour = "purple", size = 4, shape = "diamond") +
+  annotate("point", x = -93.2345, y = 44.9481, colour = "purple", size = 4, shape = "diamond") +
+  labs(title = "Highest Crime Density Locations")
+  
+```
+
+
+```{r}
+#suspicious crime density maps
+suspicious_problem_crime <- Crime_Data %>%
+  filter(
+    str_detect(Problem_Initial, "Suspicious Person") == TRUE | 
+    str_detect(Problem_Final, "Suspicious Person") == TRUE)
+
+#289 rows
+suspicious_crime_ward9 <- suspicious_problem_crime %>%
+  filter(Ward == 9)
+
+suspicious_crime_ward9_coord <- suspicious_crime_ward9 %>%
+  filter(X != 0 & Y != 0)
+
+#Density plot for suspicious persons based on crime data
+ward9_map +
+    stat_density_2d(data = suspicious_crime_ward9, aes(x=Longitude, y=Latitude, fill = ..level..), geom = "polygon", alpha = .5)+
+  geom_hline(yintercept = 44.9483, size = 1.5, color = "Yellow") + 
+   geom_polygon(data= ward9, 
+                        aes(x = long, y = lat, group = group), 
+                        fill = NA, col = "black", size = 1)+
+  scale_fill_gradient2(low = "yellow", mid = "red", high = "purple",midpoint = 2500) +
+  labs(title = "Suspicious Person as Problem in Crime Data")
+```
+
+
+Police_Force and Police_Incidents for ward 9
+
+```{r}
+#Police Use of Force Events
+ward9_map +
+  stat_density_2d(data = Police_Force, aes(x=X, y=Y,fill = ..level..), geom = "polygon", alpha = .5) +
+  geom_hline(yintercept = 44.9483, size = 1.5, color = "blue") +
+  geom_polygon(data= ward9, 
+                        aes(x = long, y = lat, group = group), 
+                        fill = NA, col = "black", size = 1) +
+  scale_fill_gradient2(low = "yellow", mid = "red", high = "purple",midpoint = 1250) +
+  labs(title = "Police Use of Force Events Density Map")
+
+#Police Incidents Events
+ward9_map +
+  stat_density_2d(data = Police_Incidents, aes(x=Long, y=Lat,fill = ..level..), geom = "polygon", alpha = .5) +
+  geom_hline(yintercept = 44.9483, size = 1.5, color = "blue") +
+  geom_polygon(data= ward9, 
+                        aes(x = long, y = lat, group = group), 
+                        fill = NA, col = "black", size = 1) +
+  scale_fill_gradient2(low = "yellow", mid = "red", high = "purple",midpoint = 2000) +
+  labs(title = "Police Incidents Locations Density Map for Ward 9")
+```
+
+
+Suspicious people from force dataset 
+
+```{r}
+#suspicious force density maps
+suspicious_problem_force <- Police_Force %>%
+  filter(
+    str_detect(Problem, "Suspicious Person") == TRUE, X < 0)
+
+suspicious_noproblem_force <- Police_Force %>%
+  filter(
+    !str_detect(Problem, "Suspicious Person") == TRUE, X < 0)
+
+suspicious_vehicle_force <- Police_Force %>%
+  filter(
+    str_detect(Problem, "Suspicious Vehicle") == TRUE, X < 0)
+
+#Density plot for suspicious persons based on police force data
+ward9_map +
+    stat_density_2d(data = suspicious_noproblem_force, aes(x=X, y=Y, fill = ..level..), geom = "polygon", alpha = .5)+
+  geom_hline(yintercept = 44.9483, size = 1.5, color = "Yellow") + 
+   geom_polygon(data= ward9, 
+                        aes(x = long, y = lat, group = group), 
+                        fill = NA, col = "black", size = 1) +
+  scale_fill_gradient2(low = "yellow", mid = "red", high = "purple",midpoint = 1200) +
+  labs(title = "NOT suspicious Person in Use of Force Density Map")
+  
+load("../../data/working/ward_9_blockgroups/Ward9_Blocks.Rdata")
+polygons <- as(ward9_blocks, "SpatialPolygons")
+poly_one <- st_transform(st_union(st_as_sf(polygons)), crs=CRS("+proj=longlat +datum=NAD83 +no_defs"))
+ward9_blocks_one <- poly_one %>% as_Spatial()
+proj4string(ward9_blocks_one) #check projection
+ward9_one_bg_tidy <- broom::tidy(ward9_blocks_one)
+ward9_blocks_one$id <- row.names(ward9_blocks_one)
+
+yes911 <- Police_Force %>%
+  filter(Is911Call == "Yes")
+
+#Use of Force Events from 911 Calls
+ward9_map +
+    stat_density_2d(data = yes911, aes(x=X, y=Y, fill = ..level..), geom = "polygon", alpha = .5)+
+  scale_fill_gradient2(low = "yellow", mid = "red", high = "purple",midpoint = 1000) +
+  geom_hline(yintercept = 44.9483, size = 1.5, color = "Yellow") + 
+   geom_polygon(data= ward9_blocks_one, 
+                        aes(x = long, y = lat, group = group), 
+                        fill = NA, col = "black", size = 1) +
+  labs(title = "Use of Force Incidents from 911 Call in Ward 9")
+```
+
+```{r}
+#looking at suspicious people and no 911 in Police Use of Force
+#Suspicious Person has the most cases in Problem by nearly double
+
+no911 <- Police_Force %>%
+  filter(Is911Call == "No")
+yes911 <- Police_Force %>%
+  filter(Is911Call == "Yes")
+
+#Use of Force Not 911 Call Events
+ward9_map +
+    stat_density_2d(data = no911, aes(x=X, y=Y, fill = ..level..), geom = "polygon", alpha = .5)+
+  scale_fill_gradient2(low = "yellow", mid = "red", high = "purple",midpoint = 1250) +
+  geom_hline(yintercept = 44.9483, size = 1.5, color = "Yellow") + 
+   geom_polygon(data= ward9, 
+                        aes(x = long, y = lat, group = group), 
+                        fill = NA, col = "black", size = 1) +
+  labs(title = "Use of Force Incidents NOT from 911 Call in Ward 9")
+#Use of Force 911 Call Events
+ward9_map +
+    stat_density_2d(data = yes911, aes(x=X, y=Y, fill = ..level..), geom = "polygon", alpha = .5)+
+  scale_fill_gradient2(low = "yellow", mid = "red", high = "purple",midpoint = 1250) +
+  geom_hline(yintercept = 44.9483, size = 1.5, color = "Yellow") + 
+   geom_polygon(data= ward9, 
+                        aes(x = long, y = lat, group = group), 
+                        fill = NA, col = "black", size = 1) +
+  labs(title = "Use of Force Incidents from 911 Call in Ward 9")
+
+#creating datasets based on Is911Call
+no911Force <- suspicious_problem_force %>%
+  filter(Is911Call == "No") 
+#4,864 Suspicious Person Problems that don't start from a 911 Call
+# ~623 in Ward 9
+#All cases with 0,0 coordinates have Is911Call = 0
+
+
+yes911Force <- suspicious_problem_force %>%
+  filter(Is911Call == "Yes")
+#Only 600 Suspicious Person Problems come from 911 Calls
+# ~73 in Ward 9
+
+no911Vehicle <- suspicious_vehicle_force %>%
+  filter(Is911Call == "No") 
+#1480 Suspicious Vehicle Problems not from 911 Call
+
+
+yes911Vehicle <- suspicious_vehicle_force %>%
+  filter(Is911Call == "Yes") 
+#259 Suspicious Vehicle Problems from 911 Call
+
+#Ward 9 Use Of Force maps
+#density map of suspicious person/vehicle and NOT 911 Call
+ward9_map +
+    stat_density_2d(data = no911Force, aes(x=X, y=Y, fill = ..level..), geom = "polygon", alpha = .5)+
+  scale_fill_gradient2(low = "yellow", mid = "red", high = "purple",midpoint = 1250) +
+  geom_hline(yintercept = 44.9483, size = 1.5, color = "Yellow") + 
+   geom_polygon(data= ward9_blocks_one, 
+                        aes(x = long, y = lat, group = group), 
+                        fill = NA, col = "black", size = 1) +
+  labs(title = "Suspicious Person and NOT 911 Call in Ward 9") +
+  annotate("point",x =-93.2369628,y = 44.9481237) 
+
+ward9_map +
+    stat_density_2d(data = no911Vehicle, aes(x=X, y=Y, fill = ..level..), geom = "polygon", alpha = .5)+
+  scale_fill_gradient2(low = "yellow", mid = "red", high = "purple",midpoint = 1000) +
+  geom_hline(yintercept = 44.9483, size = 1.5, color = "Yellow") + 
+   geom_polygon(data= ward9, 
+                        aes(x = long, y = lat, group = group), 
+                        fill = NA, col = "black", size = 1) +
+  labs(title = "Suspicious Vehicle and NOT 911 Call in Ward 9") +
+  annotate("point",x =-93.2369628,y = 44.9481237) +
+  annotate("text",x =-93.241, y = 44.9475, label = "3rd Police Precinct", size = 3)
+
+#density map of suspicious person and 911 Call
+ward9_map +
+   stat_density_2d(data = yes911Force, aes(x=X, y=Y, fill = ..level..), geom = "polygon", alpha = .5) +
+  scale_fill_gradient2(low = "yellow", mid = "red", high = "purple", midpoint = 650)+
+  geom_hline(yintercept = 44.9483, size = 1.5, color = "Yellow") + 
+   geom_polygon(data= ward9_blocks_one, 
+                        aes(x = long, y = lat, group = group), 
+                        fill = NA, col = "black", size = 1) +
+  labs(title = "Suspicious Person and 911 Call in Ward 9")
+
+ward9_map +
+   stat_density_2d(data = yes911Vehicle, aes(x=X, y=Y, fill = ..level..), geom = "polygon", alpha = .5) +
+  scale_fill_gradient2(low = "yellow", mid = "red", high = "purple", midpoint = 600)+
+  geom_hline(yintercept = 44.9483, size = 1.5, color = "Yellow") + 
+   geom_polygon(data= ward9, 
+                        aes(x = long, y = lat, group = group), 
+                        fill = NA, col = "black", size = 1) +
+  labs(title = "Suspicious Vehicle and 911 Call in Ward 9")
+```
+
+
+```{r}
+ward9_map +
+ geom_hline(yintercept = 44.9483, size = 1.5, color = "Yellow") +
+  geom_point(data = yes911Force, aes(x=X, y=Y), color = "blue") +
+     geom_polygon(data = ward9, 
+                        aes(x = long, y = lat, group = group), 
+                        fill = NA, col = "black", size = 1) 
+
+ward9_map +
+  geom_hline(yintercept = 44.9483, size = 1.5, color = "Yellow") +
+  geom_jitter(data = suspicious_problem_force, aes(x=X, y=Y, color = Is911Call)) +
+     geom_polygon(data= ward9, 
+                        aes(x = long, y = lat, group = group), 
+                        fill = NA, col = "black", size = 1) 
+```
+
+```{r}
+#race/gender in 911 and suspicious person/vehicle cases
+suspicious_problem_force_race <- suspicious_problem_force %>%
+  filter(Race != "not recorded",Race != "Unknown")
+
+ggplot(suspicious_problem_force_race, aes(Is911Call, fill = Race)) +
+  geom_bar(position = "fill")+
+  labs(title = "Suspicious Person Use of Force Cases by if 911 Call and Race", 
+       x= "Is 911 Call", y = "Percent")
+
+ggplot(suspicious_problem_force, aes(Is911Call, fill = Sex)) +
+  geom_bar(position = "fill")+
+  labs(title = "Suspicious Person Use of Force Cases by if 911 Call and Sex", 
+       x= "Is 911 Call", y = "Percent")
+
+suspicious_vehicle_force_race <- suspicious_vehicle_force %>%
+  filter(Race != "not recorded",Race != "Unknown")
+
+ggplot(suspicious_vehicle_force_race, aes(Is911Call, fill = Race)) +
+  geom_bar(position = "fill")+
+  labs(title = "Suspicious Vehicle Use of Force Cases by if 911 Call and Race", 
+       x= "Is 911 Call", y = "Percent")
+
+ggplot(suspicious_vehicle_force, aes(Is911Call, fill = Sex)) +
+  geom_bar(position = "fill")+
+  labs(title = "Suspicious Vehicle Use of Force Cases by if 911 Call and Sex", 
+       x= "Is 911 Call", y = "Percent")
+
+ward9_map +
+  geom_hline(yintercept = 44.9483, size = 1.5, color = "Yellow") +
+  geom_jitter(data = suspicious_problem_force, aes(x=X, y=Y, color = Race)) +
+     geom_polygon(data= ward9, 
+                        aes(x = long, y = lat, group = group), 
+                        fill = NA, col = "black", size = 1) +
+  labs(title = "Suspicious Person Cases by Race")
+
+ward9_map +
+  geom_hline(yintercept = 44.9483, size = 1.5, color = "Yellow") +
+  geom_jitter(data = suspicious_problem_force, aes(x=X, y=Y, color = Sex)) +
+     geom_polygon(data= ward9, 
+                        aes(x = long, y = lat, group = group), 
+                        fill = NA, col = "black", size = 1) +
+  labs(title = "Suspicious Person Cases by Sex")
+```

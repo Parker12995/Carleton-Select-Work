@@ -1,0 +1,645 @@
+---
+title: "other_wards_EDA"
+output: pdf_document
+date: "2023-02-24"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(ggplot2)
+library(sf)
+library(ggmap)
+library(sp)
+```
+
+## Other wards
+
+```{r}
+#setwd("~/GitHub/carleton_comps_22_23/src/parker")
+Crime_Data <- read.csv("../../data/original/Crime_Data.csv")
+Police_Incidents <- read.csv("../../data/working/Police_Incidents.csv")
+Police_Force <- read.csv("../../data/original/Police_Use_of_Force.csv")
+```
+
+
+```{r}
+minn_wards <- st_read("../../data/original/City_Council_Wards/WARDS.shp") %>%
+  as_Spatial()
+wards_fortify <- broom::tidy(minn_wards)
+minn_wards$id <- row.names(minn_wards)
+wards_fortify <- left_join(wards_fortify, minn_wards@data)
+
+minn_map <- ggmap(get_map(c(left = -93.35, bottom = 44.88, 
+                            right = -93.18, top = 45.06), source = "stamen"))
+
+mn_wards <- st_read("../../data/original/City_Council_Wards/WARDS.shp") 
+
+ward9 <-st_crop(mn_wards, xmin = -93.28, xmax = -93.227, ymin = 44.933, ymax = 44.963) %>%
+  as_Spatial()
+
+load("../../data/working/Census_Tracts_Data.Rdata")
+tracts_fortify <- broom::tidy(minneapolis_tracts)
+minneapolis_tracts$id <- row.names(minneapolis_tracts)
+tracts_fortify <- left_join(tracts_fortify, minneapolis_tracts@data)
+```
+
+Based on census tracts for percent white and percent black, ward 8 (southwest of ward 9) seems to be the most similar.
+
+```{r}
+tracts_fortify <- tracts_fortify %>%
+  mutate(perc_white = total_white / total_pop, perc_black = total_black / total_pop)
+
+minn_map + geom_polygon(data= tracts_fortify, 
+                        aes(x = long, y = lat, group = group, 
+                        fill = perc_white), col = "tan", lty = "dotted")+
+  scale_fill_distiller(palette = "Spectral") + 
+  geom_polygon(data= wards_fortify, 
+                        aes(x = long, y = lat, group = group), 
+                        fill = NA, col = "black") + labs(fill = "Percent\nwhite") + 
+    theme(axis.title = element_blank(),
+        axis.text = element_blank(),
+        axis.ticks = element_blank())
+
+minn_map + geom_polygon(data= tracts_fortify, 
+                        aes(x = long, y = lat, group = group, 
+                        fill = perc_black), col = "tan", lty = "dotted")+
+  scale_fill_distiller(palette = "Spectral") + 
+  geom_polygon(data= wards_fortify, 
+                        aes(x = long, y = lat, group = group), 
+                        fill = NA, col = "black") + labs(fill = "Percent\nblack") + 
+    theme(axis.title = element_blank(),
+        axis.text = element_blank(),
+        axis.ticks = element_blank())
+
+minn_map + geom_polygon(data= tracts_fortify, 
+                        aes(x = long, y = lat, group = group, 
+                        fill = med_income), col = "tan", lty = "dotted")+
+  scale_fill_distiller(palette = "Spectral") + 
+  geom_polygon(data= wards_fortify, 
+                        aes(x = long, y = lat, group = group), 
+                        fill = NA, col = "black") + labs(fill = "Median\nincome") + 
+  theme(axis.title = element_blank(),
+        axis.text = element_blank(),
+        axis.ticks = element_blank())
+
+minn_map + geom_polygon(data= tracts_fortify, 
+                        aes(x = long, y = lat, group = group, 
+                        fill = total_pop), col = "tan", lty = "dotted")+
+  scale_fill_distiller(palette = "Spectral") + 
+  geom_polygon(data= wards_fortify, 
+                        aes(x = long, y = lat, group = group), 
+                        fill = NA, col = "black") + labs(fill = "Total\npopulation") + 
+    theme(axis.title = element_blank(),
+        axis.text = element_blank(),
+        axis.ticks = element_blank())
+```
+
+Subsetting the datasets to just ward 8
+
+```{r}
+#Police use of force
+sp_force_data <- Police_Force
+coordinates(sp_force_data) <- ~X+Y
+proj4string(minn_wards) #check projection
+proj4string(sp_force_data) <- CRS("+proj=longlat +datum=WGS84 +no_defs")
+
+sp_force_data <- spTransform(sp_force_data, proj4string(minn_wards))
+
+over_data_force <- over(sp_force_data, minn_wards)
+
+force_data_full <- cbind(Police_Force, over_data_force)
+
+ward8_Force <- force_data_full %>%
+  filter(BDNUM == 8)
+
+#Police Incidents
+sp_incidents_data <- Police_Incidents
+coordinates(sp_incidents_data) <- ~Long+Lat
+proj4string(minn_wards) #check projection
+proj4string(sp_incidents_data) <- CRS("+proj=longlat +datum=WGS84 +no_defs")
+
+sp_incidents_data <- spTransform(sp_incidents_data, proj4string(minn_wards))
+
+over_data_incidents <- over(sp_incidents_data, minn_wards)
+
+incidents_data_full <- cbind(Police_Incidents, over_data_incidents)
+
+ward8_Incidents <- incidents_data_full %>%
+  filter(BDNUM == 8)
+
+#Crime Data. Some points in the original data set lied outside of the ward, so
+#I still had to do this method.
+sp_crime_data <- Crime_Data
+coordinates(sp_crime_data) <- ~X+Y
+proj4string(minn_wards) #check projection
+proj4string(sp_crime_data) <- CRS("+proj=longlat +datum=WGS84 +no_defs")
+
+sp_crime_data <- spTransform(sp_crime_data, proj4string(minn_wards))
+
+over_data_crime <- over(sp_crime_data, minn_wards)
+
+crime_data_full <- cbind(Crime_Data, over_data_crime)
+
+ward8_Crime <- crime_data_full %>%
+  filter(BDNUM == 8)
+```
+
+Making ward 8 map
+
+```{r}
+ward8 <-st_crop(mn_wards, xmin = -93.294, xmax = -93.244, ymin = 44.908, ymax = 44.952) %>%
+  as_Spatial()
+
+ward8_map <- ggmap(get_map(c(left = -93.294, bottom = 44.908, 
+                            right = -93.244, top = 44.9521), source = "stamen"))
+
+ward8_map + geom_polygon(data= ward8, 
+                        aes(x = long, y = lat, group = group), 
+                        fill = NA, col = "black", linewidth = 0.8)
+```
+
+General ward 8 maps
+
+```{r}
+#911 Call mapping for ward 8
+ward8_map +
+  #geom_hline(yintercept = 44.9483, size = 1.5, color = "Yellow") +
+  geom_point(data = ward8_Force, aes(x=X, y=Y, color = Is911Call)) +
+  geom_polygon(data= ward8, 
+                        aes(x = long, y = lat, group = group), 
+                        fill = NA, col = "black", size = 1)
+  
+
+ward8_map + 
+  geom_jitter(data = ward8_Force, aes(x=X, y=Y, color = Is911Call), 
+              width = .0007, height = .0007) +
+#geom_hline(yintercept = 44.9483, size = 1.5, color = "Yellow")  +
+  geom_polygon(data= ward8, 
+                        aes(x = long, y = lat, group = group), 
+                        fill = NA, col = "black", size = 1)
+  
+#crime data for ward 8
+ward8_map + 
+  geom_point(data = ward8_Crime, aes(x=Longitude, y=Latitude), color = "Blue", 
+              width = .0007, height = .0007) +
+  #geom_hline(yintercept = 44.9483, size = 1.5, color = "Yellow") +
+  geom_polygon(data= ward8, 
+                        aes(x = long, y = lat, group = group), 
+                        fill = NA, col = "black", size = 1)
+
+ward8_map + 
+  geom_jitter(data = ward8_Crime, aes(x=Longitude, y=Latitude), 
+              width = .0007, height = .0007) +
+  #geom_hline(yintercept = 44.9483, size = 1.5, color = "Yellow") +
+  geom_polygon(data= ward8, 
+                        aes(x = long, y = lat, group = group), 
+                        fill = NA, col = "red", size = 1)
+```
+
+Messing around with integration points and knots; not important
+```{r}
+library(spatstat)
+minn_tracts.sf <- st_as_sf(minneapolis_tracts)
+for (i in 1:nrow(minn_tracts.sf)) {
+  minn_tracts.sf[i, 39] <- area(st_transform(st_union(minn_tracts.sf[i, ]),crs = 6345))
+}
+minn_tracts.sf$tract_area <- minn_tracts.sf$V39
+minn_tracts.sf <- minn_tracts.sf[, -39]
+
+minn_tracts.sf$num_sim_points <- round(minn_tracts.sf$tract_area / min(minn_tracts.sf$tract_area), digits = 0)
+
+sim_points_coor <- data.frame(matrix(ncol = 2, nrow = 0))
+colnames(sim_points_coor) <- c('x', 'y')
+
+set.seed(1342343)
+for (i in 1:nrow(minn_tracts.sf)) {
+  all_tracts_loop <- st_transform(st_union(minn_tracts.sf[i, ]),crs = 6345)
+  all_tracts_win_loop <- all_tracts_loop %>% as.owin()
+  sim_points_loop <- runifpoint(minn_tracts.sf[i, ]$num_sim_points, win=all_tracts_win_loop)
+  sim_points_coor_loop <- sim_points_loop %>% as.data.frame()
+  sim_points_coor <- rbind(sim_points_coor, sim_points_coor_loop)
+}
+
+coordinates(sim_points_coor) <- ~x+y
+proj4string(sim_points_coor) <- proj4string(as_Spatial(all_tracts_loop))
+sim_points_coor <- spTransform(sim_points_coor, proj4string(minneapolis_tracts))
+
+#points_fortify <- broom::tidy(sim_points_coor_test2@coords)
+#names(points_fortify)[1] <- "x"
+#names(points_fortify)[2] <- "y"
+#minneapolis_tracts$id <- row.names(minneapolis_tracts)
+#tracts_fortify <- left_join(tracts_fortify, minneapolis_tracts@data)
+
+tracts_fortify <- broom::tidy(minneapolis_tracts)
+minneapolis_tracts$id <- row.names(minneapolis_tracts)
+tracts_fortify <- left_join(tracts_fortify, minneapolis_tracts@data)
+points_fortify <- broom::tidy(sim_points_coor@coords)
+minn_map + 
+  geom_polygon(data= tracts_fortify, 
+                        aes(x = long, y = lat, group = group), 
+                        fill = NA, col = "black") + 
+  geom_point(data = points_fortify, aes(x=x[,"x"], y=x[,"y"]))
+
+
+
+lattice <- expand.grid(lon = seq(bbox(minn_wards)[1,1],bbox(minn_wards)[1,2],length.out = 20), 
+                       lat = seq(bbox(minn_wards)[2,1],bbox(minn_wards)[2,2],length.out = 20))
+minn_map +
+  geom_point(data = lattice, aes(x=lon, y=lat)) +
+  geom_polygon(data= wards_fortify, 
+                        aes(x = long, y = lat, group = group), 
+                        fill = NA, col = "black", size = 1)
+
+sp_lattice <- lattice
+coordinates(sp_lattice) <- ~lon+lat
+proj4string(minn_wards) #check projection
+proj4string(sp_lattice) <- CRS("+proj=longlat +datum=WGS84 +no_defs")
+
+sp_lattice <- spTransform(sp_lattice, proj4string(minn_wards))
+over_lattice <- over(sp_lattice, minn_wards)
+lattice_full <- cbind(lattice, over_lattice)
+
+knots <- lattice_full %>%
+  filter(is.na(BDNUM) == FALSE)
+
+minn_map +
+  geom_point(data = knots, aes(x=lon, y=lat)) +
+  geom_polygon(data= wards_fortify, 
+                        aes(x = long, y = lat, group = group), 
+                        fill = NA, col = "black", size = 1)
+```
+
+
+
+Density plots. Radiating from Lake street down Nicollet Ave? Might be a center at 38th and Chicago?
+Minneapolis Police Department slightly right of the Lake Street center, the center might be at Horn Towers or the old Kmart parking lot? Is it just a big block?
+
+```{r}
+#Ward 8 Density Plots
+ward8_map +
+  geom_bin2d(data = Crime_Data, aes(x=X, y=Y), alpha = .5) +
+  geom_hline(yintercept = 44.9483, size = 1, color = "blue") +
+  geom_vline(xintercept = -93.2779, size = 1, color = "green") +
+  geom_vline(xintercept = -93.2625, size = 1, color = "yellow") + 
+  geom_polygon(data= ward8, 
+                        aes(x = long, y = lat, group = group), 
+                        fill = NA, col = "black", size = 1) +
+  scale_fill_gradient2(low = "yellow", mid = "red", high = "purple",midpoint = 400)
+
+ward8_map +
+  stat_density_2d(data = Crime_Data, aes(x=X, y=Y,fill = ..level..), geom = "polygon", alpha = .5) +
+  geom_hline(yintercept = 44.9483, size = 1, color = "blue") +
+  geom_vline(xintercept = -93.2779, size = 1, color = "green") +
+  geom_vline(xintercept = -93.2625, size = 1, color = "yellow") + 
+  geom_polygon(data= ward8, 
+                        aes(x = long, y = lat, group = group), 
+                        fill = NA, col = "black", size = 1) +
+  scale_fill_gradient2(low = "yellow", mid = "red", high = "purple",midpoint = 1250) +
+  labs(title = "Crime Locations Density Map") + 
+    theme(axis.text.x = element_blank(), axis.text.y = element_blank(), 
+        axis.ticks = element_blank(),
+        axis.title.y=element_blank(), axis.title.x=element_blank())
+
+#Incidents
+ward8_map +
+  stat_density_2d(data = Police_Incidents, aes(x=Long, y=Lat,fill = ..level..), geom = "polygon", alpha = .5) +
+  geom_hline(yintercept = 44.9483, size = 1, color = "blue") +
+  geom_vline(xintercept = -93.2779, size = 1, color = "green") +
+  geom_vline(xintercept = -93.2625, size = 1, color = "yellow") + 
+  geom_polygon(data= ward8, 
+                        aes(x = long, y = lat, group = group), 
+                        fill = NA, col = "black", size = 1) +
+  scale_fill_gradient2(low = "yellow", mid = "red", high = "purple",midpoint = 1250) +
+  labs(title = "Police Incidents Locations \n Density Map") + 
+    theme(axis.text.x = element_blank(), axis.text.y = element_blank(), 
+      axis.ticks = element_blank(),
+      axis.title.y=element_blank(), axis.title.x=element_blank(), 
+      plot.title = element_text(hjust = 0.5))
+
+#Use of force
+ward8_map +
+  stat_density_2d(data = Police_Force, aes(x=X, y=Y,fill = ..level..), geom = "polygon", alpha = .5) +
+  geom_hline(yintercept = 44.9483, size = 1, color = "blue") +
+  geom_vline(xintercept = -93.2779, size = 1, color = "green") +
+  geom_vline(xintercept = -93.2625, size = 1, color = "yellow") + 
+  geom_polygon(data= ward8, 
+                        aes(x = long, y = lat, group = group), 
+                        fill = NA, col = "black", size = 1) +
+  scale_fill_gradient2(low = "yellow", mid = "red", high = "purple",midpoint = 1250) +
+  labs(title = "Police Force Locations Density Map") + 
+      theme(axis.text.x = element_blank(), axis.text.y = element_blank(), 
+        axis.ticks = element_blank(),
+        axis.title.y=element_blank(), axis.title.x=element_blank())
+
+
+ward8_map+
+  geom_polygon(data= ward8, 
+                        aes(x = long, y = lat, group = group), 
+                        fill = NA, col = "black", size = 1) +
+  annotate("point", x = -93.2773, y = 44.9467, colour = "purple", size = 4, shape = "diamond") +
+  annotate("point", x = -93.2625, y = 44.9344, colour = "purple", size = 4, shape = "diamond") +
+#  annotate("point", x = -93.2345, y = 44.9481, colour = "purple", size = 4, shape = "diamond") +
+  labs(title = "Highest Crime Density Locations")
+```
+
+Suspicious crime
+
+```{r}
+#suspicious crime density maps
+suspicious_problem_crime <- Crime_Data %>%
+  filter(
+    str_detect(Problem_Initial, "Suspicious Person") == TRUE | 
+    str_detect(Problem_Final, "Suspicious Person") == TRUE)
+
+#59 rows
+suspicious_crime_ward8 <- suspicious_problem_crime %>%
+  filter(Ward == 8)
+
+#Density plot for suspicious persons based on crime data
+ward8_map +
+    stat_density_2d(data = suspicious_problem_crime, aes(x=Longitude, y=Latitude, fill = ..level..), geom = "polygon", alpha = .5)+
+  geom_hline(yintercept = 44.9483, size = 1, color = "blue") +
+  geom_vline(xintercept = -93.2779, size = 1, color = "green") +
+  #geom_vline(xintercept = -93.2625, size = 1, color = "yellow") + 
+   geom_polygon(data= ward8, 
+                        aes(x = long, y = lat, group = group), 
+                        fill = NA, col = "black", size = 1)+
+  scale_fill_gradient2(low = "yellow", mid = "red", high = "purple",midpoint = 2500) +
+  labs(title = "Suspicious Person as Problem \n in Crime Data") + 
+  theme(plot.title = element_text(hjust = 0.5))
+```
+
+Suspicious Force
+
+```{r}
+#suspicious crime density maps
+suspicious_problem_force <- Police_Force %>%
+  filter(
+    str_detect(Problem, "Suspicious Person") == TRUE)
+
+#155 rows
+suspicious_force_ward8 <- ward8_Force %>%
+  filter(str_detect(Problem, "Suspicious Person") == TRUE)
+
+#Density plot for suspicious persons based on crime data
+ward8_map +
+    stat_density_2d(data = suspicious_problem_force, aes(x=X, y=Y, fill = ..level..), geom = "polygon", alpha = .5)+
+  geom_hline(yintercept = 44.9483, size = 1, color = "blue") +
+  geom_vline(xintercept = -93.2779, size = 1, color = "green") +
+  geom_vline(xintercept = -93.2625, size = 1, color = "yellow") + 
+   geom_polygon(data= ward8, 
+                        aes(x = long, y = lat, group = group), 
+                        fill = NA, col = "black", size = 1)+
+  scale_fill_gradient2(low = "yellow", mid = "red", high = "purple",midpoint = 2500) +
+  labs(title = "Suspicious Person as Problem \n in Force Data") + 
+  theme(plot.title = element_text(hjust = 0.5))
+
+ward8_map + 
+  geom_point(data = suspicious_problem_force, aes(x=X, y=Y), 
+              width = .0007, height = .0007) +
+  geom_hline(yintercept = 44.9483, size = 1, color = "blue") +
+  geom_vline(xintercept = -93.2779, size = 1, color = "green") +
+  geom_vline(xintercept = -93.2625, size = 1, color = "yellow") + 
+  geom_polygon(data= ward8, 
+                        aes(x = long, y = lat, group = group), 
+                        fill = NA, col = "red", size = 1) + 
+  labs(title = "Suspicious Person Cases in Force Data") + 
+  labs(title = "Suspicious Person Cases \n in Force Data") + 
+  theme(plot.title = element_text(hjust = 0.5))
+
+ward8_map + 
+  geom_jitter(data = suspicious_problem_force, aes(x=X, y=Y), 
+              width = .0007, height = .0007) +
+  geom_hline(yintercept = 44.9483, size = 1, color = "blue") +
+  geom_vline(xintercept = -93.2779, size = 1, color = "green") +
+  geom_vline(xintercept = -93.2625, size = 1, color = "yellow") + 
+  geom_polygon(data= ward8, 
+                        aes(x = long, y = lat, group = group), 
+                        fill = NA, col = "red", size = 1) + 
+  labs(title = "Jittered Suspicious Person Cases \n in Force Data") + 
+  theme(plot.title = element_text(hjust = 0.5))
+```
+
+```{r}
+#creating datasets based on Is911Call
+no911Force_ward8 <- suspicious_force_ward8 %>%
+  filter(Is911Call == "No") 
+#4,864 Suspicious Person Problems that don't start from a 911 Call
+# 119 in Ward 8
+no911Force <- suspicious_problem_force %>%
+  filter(Is911Call == "No") 
+
+yes911Force_ward8 <- suspicious_force_ward8 %>%
+  filter(Is911Call == "Yes")
+#Only 600 Suspicious Person Problems come from 911 Calls
+# 36 in Ward 8
+yes911Force <- suspicious_problem_force %>%
+  filter(Is911Call == "Yes")
+
+#Ward 9 Use Of Force maps
+#density map of suspicious person/vehicle and NOT 911 Call
+ward8_map +
+    stat_density_2d(data = no911Force, aes(x=X, y=Y, fill = ..level..), geom = "polygon", alpha = .5)+
+  scale_fill_gradient2(low = "yellow", mid = "red", high = "purple",midpoint = 1250) +
+  geom_hline(yintercept = 44.9483, size = 1, color = "blue") +
+  geom_vline(xintercept = -93.2779, size = 1, color = "green") +
+   geom_polygon(data= ward8, 
+                        aes(x = long, y = lat, group = group), 
+                        fill = NA, col = "black", size = 1) +
+  labs(title = "Suspicious Person and NOT \n 911 Call in Ward 8") + 
+  theme(plot.title = element_text(hjust = 0.5))
+
+#density map of suspicious person and 911 Call
+ward8_map +
+   stat_density_2d(data = yes911Force, aes(x=X, y=Y, fill = ..level..), geom = "polygon", alpha = .5) +
+  scale_fill_gradient2(low = "yellow", mid = "red", high = "purple", midpoint = 650)+
+  geom_hline(yintercept = 44.9483, size = 1, color = "blue") +
+  geom_vline(xintercept = -93.2779, size = 1, color = "green") +
+   geom_polygon(data= ward8, 
+                        aes(x = long, y = lat, group = group), 
+                        fill = NA, col = "black", size = 1) +
+  labs(title = "Suspicious Person and \n 911 Call in Ward 8") + 
+  theme(plot.title = element_text(hjust = 0.5))
+```
+
+911 Call mapping for ward 8
+
+```{r}
+#911 Call mapping for ward 8
+ward8_map +
+  #geom_hline(yintercept = 44.9483, size = 1.5, color = "Yellow") +
+  geom_point(data = ward8_Force, aes(x=X, y=Y, color = Is911Call)) +
+  geom_polygon(data= ward8, 
+                        aes(x = long, y = lat, group = group), 
+                        fill = NA, col = "black", size = 1)
+  
+
+ward8_map + 
+  geom_jitter(data = ward8_Force, aes(x=X, y=Y, color = Is911Call), 
+              width = .0007, height = .0007) +
+#geom_hline(yintercept = 44.9483, size = 1.5, color = "Yellow")  +
+  geom_polygon(data= ward8, 
+                        aes(x = long, y = lat, group = group), 
+                        fill = NA, col = "black", size = 1)
+
+
+
+ward8_map +
+  geom_hline(yintercept = 44.9483, size = 1, color = "purple") +
+  geom_vline(xintercept = -93.2779, size = 1, color = "green") +
+  geom_vline(xintercept = -93.2625, size = 1, color = "yellow") + 
+  geom_point(data = no911Force_ward8, aes(x=X, y=Y), color = "blue") +
+  geom_polygon(data= ward8, 
+                        aes(x = long, y = lat, group = group), 
+                        fill = NA, col = "black", size = .5) +
+  labs(title = "Suspicious Person and NOT 911 Point Locations")
+
+ward8_map +
+  geom_hline(yintercept = 44.9483, size = 1, color = "purple") +
+  geom_vline(xintercept = -93.2779, size = 1, color = "green") +
+  geom_vline(xintercept = -93.2625, size = 1, color = "yellow") + 
+  geom_point(data = yes911Force_ward8, aes(x=X, y=Y), color = "blue") +
+  geom_polygon(data= ward8, 
+                        aes(x = long, y = lat, group = group), 
+                        fill = NA, col = "black", size = .5) +
+    labs(title = "Suspicious Person and 911 Point Locations")
+
+ward8_map +
+  geom_hline(yintercept = 44.9483, size = 1, color = "purple") +
+  geom_vline(xintercept = -93.2779, size = 1, color = "green") +
+  geom_vline(xintercept = -93.2625, size = 1, color = "yellow") + 
+  geom_jitter(data = no911Force_ward8, aes(x=X, y=Y), color = "blue", 
+              width = .0007, height = .0007) +
+  xlab("Longitude") +
+  ylab("Latitude") +
+  geom_polygon(data= ward8, 
+                        aes(x = long, y = lat, group = group), 
+                        fill = NA, col = "black", size = .5) +
+    labs(title = "Jittered Suspicious Person and NOT 911 Point Locations")
+
+ward8_map +
+  geom_hline(yintercept = 44.9483, size = 1, color = "purple") +
+  geom_vline(xintercept = -93.2779, size = 1, color = "green") +
+  geom_vline(xintercept = -93.2625, size = 1, color = "yellow") + 
+  geom_jitter(data = yes911Force_ward8, aes(x=X, y=Y), color = "blue", 
+              width = .0007, height = .0007) +
+  xlab("Longitude") +
+  ylab("Latitude") +
+  geom_polygon(data= ward8, 
+                        aes(x = long, y = lat, group = group), 
+                        fill = NA, col = "black", size = .5) +
+    labs(title = "Jittered Suspicious Person and 911 Point Locations")
+```
+
+
+
+
+
+
+## Ward 13; southwest Minneapolis
+
+Previous work looking at ward 13
+
+```{r}
+ward13_map <- ggmap(get_map(c(left = -93.335, bottom = 44.885, 
+                         right = -93.283, top = 44.952), source = "stamen"))
+
+ward13 <-st_crop(mn_wards, xmin = -93.335, xmax = -93.283, ymin = 44.885, ymax = 44.952) %>%
+  as_Spatial()
+
+
+ward13_map + 
+  xlab("Longitude") +
+  ylab("Latitude") +
+  geom_polygon(data= wards_fortify, 
+                        aes(x = long, y = lat, group = group), 
+                        fill = NA, col = "black", linewidth = .2)
+```
+
+Subsetting the datasets to just ward 13
+
+```{r}
+ward13_Force <- force_data_full %>%
+  filter(BDNUM == 13)
+
+ward13_Incidents <- incidents_data_full %>%
+  filter(BDNUM == 13)
+
+ward13_Crime <- Crime_Data %>%
+  filter(Ward == 13)
+```
+
+Incidents map, then jittered force and density map. Incidents and force seems to be much more spread out and less abundant, no large hot spots.
+
+```{r}
+ward13_map + 
+  geom_point(data = ward13_Incidents, aes(x=Long, y=Lat)) +
+  xlab("Longitude") +
+  ylab("Latitude") +
+  geom_polygon(data= ward13, 
+                        aes(x = long, y = lat, group = group), 
+                        fill = NA, col = "black", linewidth = .2)
+
+ward13_map +
+  stat_density_2d(data = ward13_Incidents, aes(x=Long, y=Lat,fill = ..level..), geom = "polygon", alpha = .5) +
+  geom_hline(yintercept = 44.9483, size = 1.5, color = "blue") +
+  geom_polygon(data= ward13, 
+                        aes(x = long, y = lat, group = group), 
+                        fill = NA, col = "black", size = 1) +
+  scale_fill_gradient2(low = "yellow", mid = "red", high = "purple",midpoint = 2000) +
+  labs(title = "Police Incidents Locations Density Map for Ward 13")
+
+ward13_map + 
+  geom_jitter(data = ward13_Force, aes(x=X, y=Y), color = "Blue", 
+              width = .0007, height = .0007) +
+  xlab("Longitude") +
+  ylab("Latitude") +
+  geom_polygon(data= ward13, 
+                        aes(x = long, y = lat, group = group), 
+                        fill = NA, col = "black", linewidth = .2)
+
+ward13_map +
+    stat_density_2d(data = ward13_Force, aes(x=X, y=Y, fill = ..level..), geom = "polygon", alpha = .5)+
+   geom_polygon(data= ward13, 
+                        aes(x = long, y = lat, group = group), 
+                        fill = NA, col = "black", size = 1)+
+  scale_fill_gradient2(low = "yellow", mid = "red", high = "purple",midpoint = 2500) +
+  labs(title = "Police Use of Force cases")
+```
+
+Collection of suspicious people on what look like Vincent and Xerxes Ave, but significantly less suspicious people labeled in ward 13 than ward 9. 16 versus 289 cases.
+
+```{r}
+suspicious_problem_crime <- Crime_Data %>%
+  filter(
+    str_detect(Problem_Initial, "Suspicious Person") == TRUE | 
+    str_detect(Problem_Final, "Suspicious Person") == TRUE)
+
+ward13_crime_suspicious <- suspicious_problem_crime %>%
+  filter(Ward == 13)
+
+ward13_map + 
+  geom_jitter(data = ward13_crime_suspicious, aes(x=Longitude, y=Latitude), color = "Blue", 
+              width = .0007, height = .0007) +
+  xlab("Longitude") +
+  ylab("Latitude") +
+  geom_polygon(data= ward13, 
+                        aes(x = long, y = lat, group = group), 
+                        fill = NA, col = "black", linewidth = .2)
+
+#Density plot for suspicious persons based on crime data
+ward13_map +
+    stat_density_2d(data = ward13_crime_suspicious, aes(x=Longitude, y=Latitude, fill = ..level..), geom = "polygon", alpha = .5) +
+   geom_polygon(data= ward13, 
+                        aes(x = long, y = lat, group = group), 
+                        fill = NA, col = "black", size = 1)+
+  scale_fill_gradient2(low = "yellow", mid = "red", high = "purple",midpoint = 2500) +
+  labs(title = "Suspicious Person as Problem in Crime Data")
+```
+
+
+
+
+
+

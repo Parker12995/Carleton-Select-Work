@@ -1,0 +1,54 @@
+---
+title: "Untitled"
+author: "Zhihan Yang"
+date: "2023-04-11"
+output: html_document
+---
+
+```{r}
+library(nimble)
+```
+
+
+```{r}
+code <- nimbleCode({
+p ~ dnorm(0.5, 0.1)  # think of this as sigma
+p2 ~ dnorm(p, sd=0.01)  # think of this as the gp values
+#y ~ dbin(p2, n)
+ll <- lfactorial(n) - lfactorial(y) - lfactorial(n-y) + y * log(p2) + (n-y) * log(1-p2)
+})
+
+Rmodel <- nimbleModel(code, data = list(y=300), inits = list(p=0.5, p2=0.75, n=1000))
+llFun <- nimbleFunction(
+setup = function(model) { },
+run = function() {
+ll <- model$ll
+returnType(double())
+return(ll[1])
+}
+)
+
+RllFun <- llFun(Rmodel)
+
+mcmcConf <- configureMCMC(Rmodel, nodes = NULL, monitors=c("p", "p2"))
+
+#mcmcConf$addSampler(target = "p", type = "RW_llFunction", control = list(llFunction = RllFun, includesTarget = FALSE))
+#mcmcConf$addSampler(target = "p2", type = "RW_llFunction", control = list(llFunction = RllFun, includesTarget = FALSE))
+
+mcmcConf$addSampler(target = c("p", "p2"), type = "RW_llFunction_block", control = list(llFunction = RllFun, includesTarget = FALSE))
+
+Rmcmc <- buildMCMC(mcmcConf)
+#comp_model <- compileNimble(Rmodel) 
+#comp_MCMC <- compileNimble(Rmcmc)
+```
+
+```{r}
+samples <- runMCMC(Rmcmc, 1000)
+```
+
+
+```{r}
+samples <- as.data.frame(samples)
+ggplot() + geom_line(aes(x=1:nrow(samples), y=samples[, 1])) + geom_line(aes(x=1:nrow(samples), y=samples[, 2]), color="red")
+```
+

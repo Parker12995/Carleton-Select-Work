@@ -1,0 +1,53 @@
+---
+title: "missingness_analysis"
+output: pdf_document
+date: "2023-02-02"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Missingness Analysis
+
+```{r}
+Police_Incidents <- read.csv("../../data/working/Police_Incidents.csv")
+Crime_Data <- read.csv("../../data/original/Crime_Data.csv")
+Police_Force <- read.csv("../../data/original/Police_Use_of_Force.csv")
+#Missingness is 0 or NA or weird values
+
+
+#Police Incidents data
+apply(X = is.na(Police_Incidents), MARGIN = 2, FUN = sum)
+colSums(Police_Incidents==0, na.rm = TRUE)
+sum(Police_Incidents$Precinct == "18" | Police_Incidents$Precinct == "99", na.rm = TRUE) #427
+sum(Police_Incidents$Description == "DO NOT USE", na.rm = TRUE) #25. All of them are PKGTHEFT, making an NA UCRCode
+
+
+#Crime Data
+apply(X = is.na(Crime_Data), MARGIN = 2, FUN = sum)
+colSums(Crime_Data==0, na.rm = TRUE)
+sum(Crime_Data$Problem_Initial == "ZZDELETEME~PD", na.rm = TRUE) #2
+sum(Crime_Data$Neighborhood == "Out of Bounds", na.rm = TRUE) #54
+
+
+
+#Police Force
+apply(X = is.na(Police_Force), MARGIN = 2, FUN = sum)
+colSums(Police_Force==0, na.rm = TRUE)
+
+sum(Police_Force$EventAge == -1786, na.rm = TRUE) #1
+sum(Police_Force$Race == "not recorded", na.rm = TRUE) #1276
+sum(Police_Force$Race == "Unknown", na.rm = TRUE) #934
+
+sum(Police_Force$Sex == "not recorded", na.rm = TRUE) #1153
+sum(Police_Force$Sex == "Unknown", na.rm = TRUE) #245
+
+sum(Police_Force$Precinct == "0U" | Police_Force$Precinct == "0O" | 
+    Police_Force$Precinct == "0M" | Police_Force$Precinct == "0T", na.rm = TRUE) #121
+
+sum(Police_Force$TypeOfResistance == "Unspecified", na.rm = TRUE) #2158
+sum(Police_Force$TypeOfResistance == "X", na.rm = TRUE) #33
+```
+
+

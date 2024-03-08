@@ -1,0 +1,329 @@
+---
+title: "Census Data"
+output: pdf_document
+date: "2023-02-16"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(sp)
+library(tigris)
+library(ggmap)
+library(tidycensus)
+library(maditr)
+library(spdep)
+library(spatialreg)
+library(gridExtra)
+library(sf)
+```
+
+## R Markdown
+
+```{r}
+minn_wards <- st_read("../../data/original/City_Council_Wards/WARDS.shp") %>%
+  as_Spatial()
+```
+
+```{r}
+minneapolis_tracts <- tracts("Minnesota", c("Hennepin"))
+minneapolis_tracts <- as_Spatial(minneapolis_tracts)
+
+minn_census <- get_acs(geography = "tract",
+                         variables = c("B01003_001E", "B01001_002E",
+                                       "B01001_026E", "B23025_003E", 
+                                       "B23025_004E", "B23025_005E", 
+                                       "B15003_022E", "B15003_017E",
+                                       "B15003_023E", "B19013_001E", 
+                                       "B15003_001E", "B19058_001E", 
+                                       "B19058_002E", "B19058_003E", 
+                                       "B02001_001E", "B02001_002E", 
+                                       "B02001_003E", "B02001_004E", 
+                                       "B02001_005E","B02001_006E", 
+                                       "B02001_007E", "B02001_008E"), year = 2021,
+                         state = "MN", county = c("Hennepin County"), 
+                         geometry = F)
+
+code_book_mn <- rbind(c("B01003_001", "total_pop"),
+                   c("B01001_002", "total_male"),
+                   c("B01001_026", "total_female"),
+                   c("B23025_003", "total_labor_force"), 
+                   c("B23025_004", "total_employed"), 
+                   c("B23025_005", "total_unemployed"),
+                   c("B15003_022", "ea_bachelors"),
+                   c("B15003_017", "ea_hsdiplomma"),
+                   c("B15003_023", "ea_masters"),
+                   c("B19013_001", "med_hh_income"),
+                   c("B15003_001", "total_ea"),
+                   c("B19058_001", "total_foodstamp"),
+                   c("B19058_002", "foodstamp_yes"),
+                   c("B19058_003", "foodstamp_no"),
+                   c("B02001_001", "total_race"), 
+                   c("B02001_002", "total_white"), 
+                   c("B02001_003", "total_black"), 
+                   c("B02001_004", "total_native"), 
+                   c("B02001_005", "total_asian"), 
+                   c("B02001_006", "total_islander"), 
+                   c("B02001_007", "total_otherrace"),
+                   c("B02001_008", "total_twoormore"))
+
+code_book_mn <- as.data.frame(code_book_mn)
+colnames(code_book_mn) <- c("variable", "var_name")
+
+minn_census <- left_join(minn_census, code_book_mn)
+
+#format the data so there is a row for each census tract and column for every variable
+minn_acs_data <- maditr::dcast(minn_census, GEOID ~ var_name, value.var = "estimate", fun.aggregate = NULL)
+
+#subset to only data that is in the shape file
+minn_acs_data <- minn_acs_data[which(minn_acs_data$GEOID %in% minneapolis_tracts$GEOID),] 
+
+#new variable for percent unemployed
+minn_acs_data$perc_unemployed <- minn_acs_data$total_unemployed/minn_acs_data$total_labor_force
+minn_acs_data$perc_employed <- minn_acs_data$total_employed/minn_acs_data$total_labor_force
+
+minn_acs_data$perc_foodstamp <- minn_acs_data$foodstamp_yes/minn_acs_data$total_foodstamp
+minn_acs_data$perc_nofoodstamp <- minn_acs_data$foodstamp_no/minn_acs_data$total_foodstamp
+
+minn_acs_data$perc_female <- minn_acs_data$total_female/minn_acs_data$total_pop
+minn_acs_data$perc_male <- minn_acs_data$total_male/minn_acs_data$total_pop
+
+minn_acs_data$perc_asian <- minn_acs_data$total_asian/minn_acs_data$total_race
+minn_acs_data$perc_native <- minn_acs_data$total_native/minn_acs_data$total_race
+minn_acs_data$perc_white <- minn_acs_data$total_white/minn_acs_data$total_race
+minn_acs_data$perc_black <- minn_acs_data$total_black/minn_acs_data$total_race
+minn_acs_data$perc_islander <- minn_acs_data$total_islander/minn_acs_data$total_race
+minn_acs_data$perc_otherrace <- minn_acs_data$total_otherrace/minn_acs_data$total_race
+minn_acs_data$perc_twoormore <- minn_acs_data$total_twoormore/minn_acs_data$total_race
+
+#Herfindahl index
+minn_acs_data$HHI <- ((minn_acs_data$perc_asian *100)^2) + ((minn_acs_data$perc_native *100)^2) + ((minn_acs_data$perc_white *100)^2) + ((minn_acs_data$perc_black *100)^2) + ((minn_acs_data$perc_islander *100)^2) + ((minn_acs_data$perc_otherrace *100)^2) + ((minn_acs_data$perc_twoormore *100)^2)
+
+minn_acs_data$HHI <- 10000 - minn_acs_data$HHI 
+minn_acs_data$HHI <- minn_acs_data$HHI / 875
+
+# Combine dataset with spatial dataset by GEOID
+minneapolis_tracts@data <- left_join(minneapolis_tracts@data, minn_acs_data)
+
+proj4string(minneapolis_tracts)
+proj4string(minn_wards) #check projection
+proj4string(minn_wards) <- CRS("+proj=longlat +datum=NAD83 +no_defs")
+proj4string(minn_wards) <- proj4string(minneapolis_tracts)
+
+minn_wards <- spTransform(minn_wards, proj4string(minneapolis_tracts))
+
+#overlay the two
+over_data <- over(minneapolis_tracts, minn_wards)
+
+minneapolis_tracts@data <- cbind(minneapolis_tracts@data, over_data)
+
+minneapolis_tracts <- minneapolis_tracts[-which(is.na(over_data$BDNUM)),]
+#plot(minneapolis_tracts)
+```
+
+Plot of percent unemployed by census tract in Minneapolis (for the most part)
+
+```{r}
+#make map
+minn_map <- ggmap(get_map(c(left = -93.35, bottom = 44.88, 
+                            right = -93.18, top = 45.06), source = "stamen"))
+
+tracts_fortify <- broom::tidy(minneapolis_tracts)
+minneapolis_tracts$id <- row.names(minneapolis_tracts)
+tracts_fortify <- left_join(tracts_fortify, minneapolis_tracts@data)
+
+#plot number of crimes by wards
+minn_map + geom_polygon(data= tracts_fortify, 
+                        aes(x = long, y = lat, group = group,
+                            fill = perc_unemployed), 
+                        col = "black") +
+  scale_fill_distiller(palette = "Spectral")
+```
+
+Plots of median income, total population, and percent under poverty per census tract.
+
+```{r}
+minn_map + geom_polygon(data= tracts_fortify, 
+                        aes(x = long, y = lat, group = group,
+                            fill = med_income), 
+                        col = "black") +
+  scale_fill_distiller(palette = "Spectral")
+
+minn_map + geom_polygon(data= tracts_fortify, 
+                        aes(x = long, y = lat, group = group,
+                            fill = total_pop), 
+                        col = "black") +
+  scale_fill_distiller(palette = "Spectral")
+
+minn_map + geom_polygon(data= tracts_fortify, 
+                        aes(x = long, y = lat, group = group,
+                            fill = below_pov_level/total_pop), 
+                        col = "black") +
+  scale_fill_distiller(palette = "Spectral")
+```
+
+
+Using Harper's code to overlay census tracts and wards shape files
+
+```{r}
+wards_fortify <- broom::tidy(minn_wards)
+minn_wards$id <- row.names(minn_wards)
+wards_fortify <- left_join(wards_fortify, minn_wards@data)
+
+minn_map + geom_polygon(data= tracts_fortify, 
+                        aes(x = long, y = lat, group = group), 
+                        col = "red") + 
+            geom_polygon(data= wards_fortify, 
+                        aes(x = long, y = lat, group = group), 
+                        col = "blue", fill = NA)
+
+#Plot of wards on census tracts
+minn_map + geom_polygon(data= wards_fortify, 
+                        aes(x = long, y = lat, group = group), 
+                        col = "blue") + 
+            geom_polygon(data= tracts_fortify, 
+                        aes(x = long, y = lat, group = group), 
+                        col = "red", fill = NA)
+
+#A different plot of the two overlayed, wards on top now
+minn_map + geom_polygon(data= tracts_fortify, 
+                        aes(x = long, y = lat, group = group), 
+                        col = "red", fill = NA) + 
+            geom_polygon(data= wards_fortify, 
+                        aes(x = long, y = lat, group = group), 
+                        col = "blue")
+```
+
+Removing tracts that aren't in the wards
+
+```{r}
+wards <-
+  st_read("../../data/original/City_Council_Wards/WARDS.shp") %>%
+  st_transform(., "+proj=longlat +datum=NAD83 +no_defs")
+
+tracts <- 
+  st_as_sf(minneapolis_tracts, 
+           coords = c("longitude", "latitude"), 
+           crs = 4326, 
+           dim = "XY")
+
+tracts <- 
+  st_transform(tracts, 
+               "+proj=longlat +datum=NAD83 +no_defs")
+
+# Calculate area and tidy up
+intersect_pct <- st_intersection(wards, tracts) %>% 
+   mutate(intersect_area = st_area(.)) %>%   # create new column with shape area
+   dplyr::select(NAME, intersect_area) %>%   # only select columns needed to merge
+   st_drop_geometry()  # drop geometry as we don't need it
+
+# Create a fresh area variable for counties
+tracts <- mutate(tracts, tracts_area = st_area(tracts))
+
+
+#We don't have unique NAMES, filtering to only having the highest intersect_area
+intersect_pct_subset <- intersect_pct %>%
+  arrange(NAME, desc(intersect_area)) %>%
+  group_by(NAME) %>%
+  slice_max(intersect_area)
+
+# Merge by county name
+tracts <- merge(tracts, intersect_pct_subset, by = "NAME", all.x = TRUE)
+
+# Calculate coverage
+tracts <- tracts %>% 
+   mutate(coverage = as.numeric(intersect_area/tracts_area))
+
+
+#Investigating coverage
+tracts_subsetting <- tracts %>%
+  arrange(desc(coverage))
+
+#Jump from 39% coverage to .4% coverage. Removed all .4% coverage and below
+tracts_subsetting2 <- head(tracts_subsetting, -18)
+
+minneapolis_tracts <- minneapolis_tracts[minneapolis_tracts$NAMELSAD %in% tracts_subsetting2$NAMELSAD,]
+
+tracts_fortify <- broom::tidy(minneapolis_tracts)
+minneapolis_tracts$id <- row.names(minneapolis_tracts)
+tracts_fortify <- left_join(tracts_fortify, minneapolis_tracts@data)
+
+minn_map + geom_polygon(data= wards_fortify, 
+                        aes(x = long, y = lat, group = group), 
+                        col = "blue") + 
+            geom_polygon(data= minneapolis_tracts, 
+                        aes(x = long, y = lat, group = group), 
+                        col = "red", fill = NA)
+```
+
+Saving minneapolis_tracts as a .Rdata file
+
+```{r}
+save(minneapolis_tracts,
+     file = "../../data/working/Census_Tracts_Data.Rdata")
+```
+
+
+
+Overlaying data points onto census data for nimble code (see nimble_loglikelihood.Rmd in Parker's folder or using_nimble.R in Aya's folder)
+
+```{r}
+load("data/working/Census_Tracts_Data.RData")
+
+#setwd("~/GitHub/carleton_comps_22_23")
+Crime_Data <- read.csv("data/original/Crime_Data.csv")
+Police_Incidents <- read.csv("data/working/Police_Incidents.csv")
+Police_Force <- read.csv("data/original/Police_Use_of_Force.csv")
+
+#Police use of force
+sp_force_data <- Police_Force
+coordinates(sp_force_data) <- ~X+Y
+proj4string(minneapolis_tracts) #check projection
+proj4string(sp_force_data) <- CRS("+proj=longlat +datum=NAD83 +no_defs")
+
+sp_force_data <- spTransform(sp_force_data, proj4string(minneapolis_tracts))
+
+over_data_force <- over(sp_force_data, minneapolis_tracts)
+
+force_data_census <- cbind(Police_Force, over_data_force)
+force_data_census <- filter(is.na(force_data_census$med_income) == FALSE)
+force_data_census <- force_data_census[is.na(force_data_census$med_income) == FALSE, ]
+write_csv(force_data_census, "data/working/overlay_pointdatasets_censusdata/over_uof_census.csv")
+
+
+#Police Incidents
+sp_incidents_data <- Police_Incidents
+coordinates(sp_incidents_data) <- ~Long+Lat
+proj4string(minneapolis_tracts) #check projection
+proj4string(sp_incidents_data) <- CRS("+proj=longlat +datum=NAD83 +no_defs")
+
+sp_incidents_data <- spTransform(sp_incidents_data, proj4string(minneapolis_tracts))
+
+over_data_incidents <- over(sp_incidents_data, minneapolis_tracts)
+
+incidents_data_census <- cbind(Police_Incidents, over_data_incidents)
+incidents_data_census <- 
+  incidents_data_census[is.na(incidents_data_census$med_income) == FALSE, ]
+
+write_csv(incidents_data_census, "data/working/overlay_pointdatasets_censusdata/over_pi_census.csv")
+
+
+#Crime Data
+sp_crime_data <- Crime_Data
+coordinates(sp_crime_data) <- ~X+Y
+proj4string(minneapolis_tracts) #check projection
+proj4string(sp_crime_data) <- CRS("+proj=longlat +datum=NAD83 +no_defs")
+
+sp_crime_data <- spTransform(sp_crime_data, proj4string(minneapolis_tracts))
+
+over_data_crime <- over(sp_crime_data, minneapolis_tracts)
+
+crime_data_census <- cbind(Crime_Data, over_data_crime)
+crime_data_census <- crime_data_census[is.na(crime_data_census$med_income) == FALSE, ]
+
+write_csv(crime_data_census, "data/working/overlay_pointdatasets_censusdata/over_crime_census.csv")
+```
+
+
+
+

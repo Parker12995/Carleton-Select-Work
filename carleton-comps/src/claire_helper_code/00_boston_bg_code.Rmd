@@ -1,0 +1,188 @@
+---
+title: "Code to Download/Plot Census Data, Boston"
+output:
+  pdf_document: default
+  html_document:
+    df_print: paged
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+Clear workspace
+```{r}
+rm(list = ls())
+```
+
+
+Packages:
+```{r, message = F}
+library(tidyverse)
+library(sp)
+library(tigris)
+library(ggmap)
+library(tidycensus)
+library(maditr)
+library(spdep)
+library(spatialreg)
+library(gridExtra)
+```
+
+Set working directory
+```{r}
+#Claire's directory
+setwd("C:/Users/ckelling/Dropbox (Carleton College)/Carleton College/Courses/22_23_comps/carleton_comps_22_23/")
+```
+
+
+Load the data
+```{r}
+#Boston crime data
+#Source: https://data.boston.gov/dataset/crime-incident-reports-august-2015-to-date-source-new-system
+#takes a minute to load
+
+#Claire's directory
+crime_data <- read.csv("C:/Users/ckelling/Dropbox (Carleton College)/Carleton College/Courses/22_23_comps/carleton_comps_22_23/data/original/boston_crime-incident-reports-2020.csv")
+
+#how many are there with missing locations
+length(which(is.na(crime_data$Lat)))
+#how many crimes are there
+nrow(crime_data)
+
+#percent missingness
+length(which(is.na(crime_data$Lat)))/nrow(crime_data)
+
+#Delete data with missing locations. In the future, we would want to look into this if we are using it for a project.
+crime_data <- crime_data %>% filter(!is.na(Lat))
+
+#Boston census tracts
+#takes a minute to load
+boston_tracts <- tracts("Massachusetts", c("Suffolk"))
+
+#this line of code might be necessary if you are working with a new version of the tigris package
+boston_tracts <- as_Spatial(boston_tracts)
+
+#subset to only tracts of interest (may not be appropriate for other states)
+boston_tracts <- boston_tracts[-which(boston_tracts$ALAND ==0 & boston_tracts$AWATER >0),]
+
+#download map of Boston, find the coordinates on Google Maps
+Boston_map <- ggmap(get_map(c(left = -71.25, bottom = 42.2, right = -70.9, top = 42.5), source = "stamen"))
+```
+
+Aggregating spatial data in R (review)
+```{r}
+#now we need to convert points to a spatial dataset
+class(crime_data)
+coordinates(crime_data) <- ~Long+Lat
+class(crime_data)
+proj4string(crime_data)
+
+#need to assign projection
+proj4string(crime_data) <- proj4string(boston_tracts)
+
+#are they all in city limits?
+#(takes a minute)
+over_dataset <- over(crime_data, boston_tracts)
+
+length(which(is.na(over_dataset$GEOID))) #17 are outside of the census tracts shown here
+
+#remove the points outside of the city
+crime_data <- crime_data[-which(is.na(over_dataset$GEOID)),] %>% as.data.frame()
+
+#now need to aggregate by tract
+agg_dat <- plyr::count(over_dataset, c('GEOID'))
+agg_dat$GEOID <- as.factor(agg_dat$GEOID)
+colnames(agg_dat) <- c("GEOID", "num_crime")
+
+#join to geographic data
+boston_tracts@data <- left_join(boston_tracts@data, agg_dat, by = (GEOID = "GEOID"))
+#View(boston_tracts@data)
+```
+
+Now let's plot the number of crimes by tract.
+```{r}
+#need to format data so ggplot knows what to do with it
+boston_fortify <- broom::tidy(boston_tracts)
+boston_tracts$id <- row.names(boston_tracts)
+boston_fortify <- left_join(boston_fortify, boston_tracts@data)
+
+#replot the shapefile
+Boston_map + geom_polygon(data= boston_fortify, aes(x = long, y = lat, group = group, fill = num_crime), col = "black")
+
+#notice there are no recorded crimes for the northern part of the county.
+#0 incidents or different police department?
+#(code deleted that investigated this in more detail!)
+
+```
+
+
+Now, I'm going to collect the spatial Census data.
+
+You will need to sign up for a Census API key. Please read the terms of service! For the organization, you can put Carleton College. Also be sure to never share this key- it is a unique identifier to you! You can paste it below, run the function, and then delete if from your code.
+
+To sign up for a Census API key go to the following website: \url{https://api.census.gov/data/key_signup.html}.
+
+
+After you sign up, we will install your census API key into your R environment. You can run this once and then delete your API key and comment the rest of the code out.
+```{r}
+census_api_key("my_api_key", install = TRUE)
+
+#check to make sure your census key is there:
+#Sys.getenv("CENSUS_API_KEY")
+```
+
+Now, you should choose the list of variables that you want to download. I will include two variables here, so you can see how this works. The full list of variables is included here: \url{https://api.census.gov/data/2017/acs/acs5/variables.html}. 
+
+You should copy the code for the variable into the following function.
+
+Below, I've included information on how to get county-level Census data for two variables from Ohio for the year 2018 (the most recent ACS to this date- the dates will be included in the output). The "E" indicates that these are the point estimates (not uncertainty estimates).
+```{r}
+#this is review from last time, collecting census data
+bost_census <- get_acs(geography = "tract", 
+                         variables = c("B01003_001E", 
+                                       "B19013_001E", "B25125_024E",
+                                       "B25125_001E"), year = 2017,
+                         state = "MA", county = c("Suffolk County"), 
+                         geometry = F)
+
+
+#I would recommend also creating a codebook for you to create track of the variables.
+code_book <- rbind(c("B01003_001", "total_pop"),
+                   c("B19013_001", "med_income"),
+                   c("B25125_024", "renter_occup"),
+                   c("B25125_001", "total_occup"))
+
+#join to the Census data
+code_book <- as.data.frame(code_book)
+colnames(code_book) <- c("variable", "var_name")
+
+#joining census data and codebook
+bost_census <- left_join(bost_census, code_book)
+
+#format the data so there is a row for each census tract and column for every variable
+bost_acs_data <- maditr::dcast(bost_census, GEOID ~ var_name, value.var = "estimate", fun.aggregate = NULL)
+
+#subset to only data that is in the shape file
+bost_acs_data <- bost_acs_data[which(bost_acs_data$GEOID %in% boston_tracts$GEOID),]   
+
+#new variable for percent renters
+bost_acs_data$perc_renter <- bost_acs_data$renter_occup/bost_acs_data$total_occup
+
+# Combine dataset with spatial dataset by GEOID
+boston_tracts@data <- left_join(boston_tracts@data, bost_acs_data)
+
+```
+
+Plot census data
+```{r}
+#plotting code from last time
+boston_fortify <- broom::tidy(boston_tracts)
+boston_tracts$id <- row.names(boston_tracts)
+boston_fortify <- left_join(boston_fortify, boston_tracts@data)
+
+#replot the shapefile
+Boston_map + geom_polygon(data= boston_fortify, 
+                          aes(x = long, y = lat, group = group, 
+                              fill = perc_renter), col = "black")
+```

@@ -1,0 +1,492 @@
+---
+title: "census_block_data"
+output: pdf_document
+date: "2023-04-04"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(sp)
+library(tigris)
+library(ggmap)
+library(tidycensus)
+library(maditr)
+library(spdep)
+library(spatialreg)
+library(gridExtra)
+library(sf)
+library(rgeos)
+```
+
+## R Markdown
+
+NOTE: This is copying the census_data.Rmd file, and applying it to census blocks. This is for looking specifically at Ward 9 for the LGCP.
+
+```{r}
+# setwd("/Users/ayaklos/Documents/GitHub/carleton_comps_22_23/src/parker")
+minn_wards <- st_read("../../data/original/City_Council_Wards/WARDS.shp") %>%
+  as_Spatial()
+
+minn_map <- ggmap(get_map(c(left = -93.35, bottom = 44.88, 
+                            right = -93.18, top = 45.06), source = "stamen"))
+
+mn_wards <- st_read("../../data/original/City_Council_Wards/WARDS.shp") 
+
+ward9 <-st_crop(mn_wards, xmin = -93.28, xmax = -93.227, ymin = 44.933, ymax = 44.963) %>%
+  as_Spatial()
+```
+
+```{r}
+minneapolis_blocks <- block_groups("Minnesota", c("Hennepin"))
+#blocks("Minnesota", c("Hennepin"))
+minneapolis_blocks <- as_Spatial(minneapolis_blocks)
+
+minn_census_blocks <- get_acs(geography = "block group", 
+                         variables = c("B01003_001E", "B01001_002E",
+                                       "B01001_026E", "B23025_003E", 
+                                       "B23025_004E", "B23025_005E", 
+                                       "B15003_022E", "B15003_017E",
+                                       "B15003_023E", "B19013_001E", 
+                                       "B15003_001E", "B19058_001E", 
+                                       "B19058_002E", "B19058_003E", 
+                                       "B02001_001E", "B02001_002E", 
+                                       "B02001_003E", "B02001_004E", 
+                                       "B02001_005E", "B02001_006E", 
+                                       "B02001_007E", "B02001_008E",
+                                       "B15003_024E", "B15003_025E"), year = 2021,
+                         state = "MN", county = c("Hennepin County"), 
+                         geometry = F)
+
+code_book_mn <- rbind(c("B01003_001", "total_pop"),
+                   c("B01001_002", "total_male"),
+                   c("B01001_026", "total_female"),
+                   c("B23025_003", "total_labor_force"), 
+                   c("B23025_004", "total_employed"), 
+                   c("B23025_005", "total_unemployed"),
+                   c("B15003_022", "ea_bachelors"),
+                   c("B15003_017", "ea_hsdiplomma"),
+                   c("B15003_023", "ea_masters"),
+                   c("B19013_001", "med_hh_income"),
+                   c("B15003_001", "total_ea"),
+                   c("B19058_001", "total_foodstamp"),
+                   c("B19058_002", "foodstamp_yes"),
+                   c("B19058_003", "foodstamp_no"),
+                   c("B02001_001", "total_race"), 
+                   c("B02001_002", "total_white"), 
+                   c("B02001_003", "total_black"), 
+                   c("B02001_004", "total_native"), 
+                   c("B02001_005", "total_asian"), 
+                   c("B02001_006", "total_islander"), 
+                   c("B02001_007", "total_otherrace"),
+                   c("B02001_008", "total_twoormore"),
+                   c("B15003_024", "ea_profschool"),
+                   c("B15003_025", "ea_doctorate"))
+
+code_book_mn <- as.data.frame(code_book_mn)
+colnames(code_book_mn) <- c("variable", "var_name")
+
+minn_census_blocks <- left_join(minn_census_blocks, code_book_mn)
+
+#format the data so there is a row for each census tract and column for every variable
+minn_acs_data <- maditr::dcast(minn_census_blocks, GEOID ~ var_name, value.var = "estimate", fun.aggregate = NULL)
+
+#subset to only data that is in the shape file
+minn_acs_data <- minn_acs_data[which(minn_acs_data$GEOID %in% minneapolis_blocks$GEOID),] 
+
+#new variable for percent unemployed
+minn_acs_data$perc_unemployed <- minn_acs_data$total_unemployed/minn_acs_data$total_labor_force
+
+#new variable for percent at least bachelors 
+minn_acs_data$perc_ba_plus <- (minn_acs_data$ea_bachelors + minn_acs_data$ea_doctorate + minn_acs_data$ea_masters +
+                                 minn_acs_data$ea_profschool)/minn_acs_data$total_ea
+
+#new variable for percent receiving foodstamps
+minn_acs_data$perc_foodstamp <- minn_acs_data$foodstamp_yes/minn_acs_data$total_foodstamp
+
+#new variables for percent female and percent male
+minn_acs_data$perc_female <- minn_acs_data$total_female/minn_acs_data$total_pop
+minn_acs_data$perc_male <- minn_acs_data$total_male/minn_acs_data$total_pop
+
+#new variable for herfendahl index
+minn_acs_data$herfendahl <- (minn_acs_data$total_white/minn_acs_data$total_pop)^2 +
+  (minn_acs_data$total_black/minn_acs_data$total_pop)^2 +
+  (minn_acs_data$total_native/minn_acs_data$total_pop)^2 +
+  (minn_acs_data$total_asian/minn_acs_data$total_pop)^2 +
+  (minn_acs_data$total_islander/minn_acs_data$total_pop)^2 +
+  (minn_acs_data$total_otherrace/minn_acs_data$total_pop)^2
+
+# #Another Herfindahl index calculation
+# minn_acs_data$HHI <- ((minn_acs_data$perc_asian *100)^2) + ((minn_acs_data$perc_native *100)^2) + ((minn_acs_data$perc_white *100)^2) + ((minn_acs_data$perc_black *100)^2) + ((minn_acs_data$perc_islander *100)^2) + ((minn_acs_data$perc_otherrace *100)^2) + ((minn_acs_data$perc_twoormore *100)^2)
+# 
+# minn_acs_data$HHI <- 10000 - minn_acs_data$HHI 
+# minn_acs_data$HHI <- minn_acs_data$HHI / 875
+
+# Combine dataset with spatial dataset by GEOID
+minneapolis_blocks@data <- left_join(minneapolis_blocks@data, minn_acs_data)
+
+proj4string(minneapolis_blocks)
+proj4string(minn_wards) #check projection
+proj4string(minn_wards) <- CRS("+proj=longlat +datum=NAD83 +no_defs")
+proj4string(minn_wards) <- proj4string(minneapolis_blocks)
+
+minn_wards <- spTransform(minn_wards, proj4string(minneapolis_blocks))
+
+#overlay the two
+over_data <- over(minneapolis_blocks, minn_wards)
+
+minneapolis_blocks@data <- cbind(minneapolis_blocks@data, over_data)
+
+minneapolis_blocks <- minneapolis_blocks[-which(is.na(over_data$BDNUM)),]
+#plot(minneapolis_blocks)
+```
+
+Plot of percent unemployed by census tract in Minneapolis (for the most part)
+
+```{r}
+#make map
+minn_map <- ggmap(get_map(c(left = -93.35, bottom = 44.88, 
+                            right = -93.18, top = 45.06), source = "stamen"))
+
+tracts_fortify <- broom::tidy(minneapolis_blocks)
+minneapolis_blocks$id <- row.names(minneapolis_blocks)
+tracts_fortify <- left_join(tracts_fortify, minneapolis_blocks@data)
+
+#plot number of crimes by wards
+minn_map + geom_polygon(data= tracts_fortify, 
+                        aes(x = long, y = lat, group = group,
+                            fill = perc_unemployed), 
+                        col = "black") +
+  scale_fill_distiller(palette = "Spectral")
+```
+
+Plots of median income, total population, and percent under poverty per census tract.
+
+```{r}
+minn_map + geom_polygon(data= tracts_fortify, 
+                        aes(x = long, y = lat, group = group,
+                            fill = med_income), 
+                        col = "black") +
+  scale_fill_distiller(palette = "Spectral")
+
+minn_map + geom_polygon(data= tracts_fortify, 
+                        aes(x = long, y = lat, group = group,
+                            fill = total_pop), 
+                        col = "black") +
+  scale_fill_distiller(palette = "Spectral")
+
+minn_map + geom_polygon(data= tracts_fortify, 
+                        aes(x = long, y = lat, group = group,
+                            fill = below_pov_level/total_pop), 
+                        col = "black") +
+  scale_fill_distiller(palette = "Spectral")
+```
+
+
+Using Harper's code to overlay census tracts and wards shape files
+
+```{r}
+wards_fortify <- broom::tidy(minn_wards)
+minn_wards$id <- row.names(minn_wards)
+wards_fortify <- left_join(wards_fortify, minn_wards@data)
+
+minn_map + geom_polygon(data= tracts_fortify, 
+                        aes(x = long, y = lat, group = group), 
+                        col = "red") + 
+            geom_polygon(data= wards_fortify, 
+                        aes(x = long, y = lat, group = group), 
+                        col = "blue", fill = NA)
+
+#Plot of wards on census tracts
+minn_map + geom_polygon(data= wards_fortify, 
+                        aes(x = long, y = lat, group = group), 
+                        col = "blue") + 
+            geom_polygon(data= tracts_fortify, 
+                        aes(x = long, y = lat, group = group), 
+                        col = "red", fill = NA)
+
+#A different plot of the two overlayed, wards on top now
+minn_map + geom_polygon(data= tracts_fortify, 
+                        aes(x = long, y = lat, group = group), 
+                        col = "red", fill = NA) + 
+            geom_polygon(data= wards_fortify, 
+                        aes(x = long, y = lat, group = group), 
+                        col = "blue")
+```
+
+Removing blocks that aren't in the wards
+
+```{r}
+wards <-
+  st_read("../../data/original/City_Council_Wards/WARDS.shp") %>%
+  st_transform(., "+proj=longlat +datum=NAD83 +no_defs")
+
+blocks <- 
+  st_as_sf(minneapolis_blocks, 
+           coords = c("longitude", "latitude"), 
+           crs = 4326, 
+           dim = "XY")
+
+blocks <- 
+  st_transform(blocks, 
+               "+proj=longlat +datum=NAD83 +no_defs")
+
+# Calculate area and tidy up
+intersect_pct <- st_intersection(wards, blocks) %>% 
+   mutate(intersect_area = st_area(.)) %>%   # create new column with shape area
+   dplyr::select(GEOID, intersect_area) %>%   # only select columns needed to merge
+   st_drop_geometry()  # drop geometry as we don't need it
+
+# Create a fresh area variable for counties
+blocks <- mutate(blocks, blocks_area = st_area(blocks))
+
+
+#We don't have unique NAMES, filtering to only having the highest intersect_area
+intersect_pct_subset <- intersect_pct %>%
+  arrange(GEOID, desc(intersect_area)) %>%
+  group_by(GEOID) %>%
+  slice_max(intersect_area)
+
+# Merge by county name
+blocks <- merge(blocks, intersect_pct_subset, by = "GEOID", all.x = TRUE)
+
+# Calculate coverage
+blocks <- blocks %>% 
+   mutate(coverage = as.numeric(intersect_area/blocks_area))
+
+
+#Investigating coverage
+blocks_subsetting <- blocks %>%
+  arrange(desc(coverage))
+
+#Jump from 49% coverage to 1.4% coverage. Removed all 1.4% coverage and below
+blocks_subsetting2 <- head(blocks_subsetting, -33)
+
+minneapolis_blocks <- minneapolis_blocks[minneapolis_blocks$GEOID %in% blocks_subsetting2$GEOID,]
+
+blocks_fortify <- broom::tidy(minneapolis_blocks)
+minneapolis_blocks$id <- row.names(minneapolis_blocks)
+blocks_fortify <- left_join(blocks_fortify, minneapolis_blocks@data)
+
+minn_map + geom_polygon(data= wards_fortify, 
+                        aes(x = long, y = lat, group = group), 
+                        col = "blue") + 
+            geom_polygon(data= minneapolis_blocks, 
+                        aes(x = long, y = lat, group = group), 
+                        col = "red", fill = NA)
+```
+
+Saving minneapolis_blocks as a .Rdata file
+
+```{r}
+save(minneapolis_blocks,
+     file = "../../data/working/Census_Blocks_Data.Rdata")
+```
+
+
+Getting enough block groups to resemble ward 9 (2 block groups partially in the ward were removed)
+
+```{r}
+ward9_for_subsetting <- minn_wards[which(minn_wards$BDNUM == "9"),] %>%
+  st_as_sf() %>%
+  st_transform(., "+proj=longlat +datum=NAD83 +no_defs")
+
+blocks2 <- 
+  st_as_sf(minneapolis_blocks, 
+           coords = c("longitude", "latitude"), 
+           crs = 4326, 
+           dim = "XY")
+
+blocks2 <- 
+  st_transform(blocks2, 
+               "+proj=longlat +datum=NAD83 +no_defs")
+
+# Calculate area and tidy up
+intersect_pct_ward9 <- st_intersection(ward9_for_subsetting, blocks2) %>% 
+   mutate(intersect_area = st_area(.)) %>%   # create new column with shape area
+   dplyr::select(GEOID, intersect_area) %>%   # only select columns needed to merge
+   st_drop_geometry()  # drop geometry as we don't need it
+
+# Create a fresh area variable for counties
+blocks2 <- mutate(blocks2, blocks_area = st_area(blocks2))
+
+
+#We don't have unique NAMES, filtering to only having the highest intersect_area
+intersect_pct_subset_ward9 <- intersect_pct_ward9 %>%
+  arrange(GEOID, desc(intersect_area)) %>%
+  group_by(GEOID) %>%
+  slice_max(intersect_area)
+
+# Merge by county name
+blocks2 <- merge(blocks2, intersect_pct_subset_ward9, by = "GEOID", all.x = TRUE)
+
+# Calculate coverage
+blocks2 <- blocks2 %>% 
+   mutate(coverage = as.numeric(intersect_area/blocks_area))
+
+
+#Investigating coverage
+blocks_subsetting2 <- blocks2 %>%
+  arrange(desc(coverage))
+
+#Change this to 28 if we want the other two block groups that partially overlapped
+blocks_subsetting3 <- head(blocks_subsetting2, 26)
+
+ward9_blocks <- minneapolis_blocks[minneapolis_blocks$GEOID %in% blocks_subsetting3$GEOID,]
+
+#Manually changing one of the block group med_hh_income values from NA to 60625
+#(This is the median hh income for the surrounding block groups)
+#See the bottom of census_and_spatial_testing.Rmd for investigating this
+ward9_blocks[16, 20] <- 60625
+
+ward9_blocks_fortify <- broom::tidy(ward9_blocks)
+ward9_blocks$id <- row.names(ward9_blocks)
+ward9_blocks_fortify <- left_join(ward9_blocks_fortify, ward9_blocks@data)
+
+ggmap(get_map(c(left = -93.29, bottom = 44.923, 
+                         right = -93.217, top = 44.973), source = "stamen")) + geom_polygon(data= ward9_blocks_fortify, 
+                        aes(x = long, y = lat, group = group, fill = med_hh_income), 
+                        col = "blue") + 
+            geom_polygon(data= ward9, 
+                        aes(x = long, y = lat, group = group), 
+                        col = "red", fill = NA) + 
+  scale_fill_distiller(palette = "Spectral") + 
+  labs(x = "Longitude", y = "Latitude")
+```
+
+```{r}
+save(ward9_blocks,
+     file = "../../data/working/ward_9_blockgroups/Ward9_Blocks.Rdata")
+```
+
+
+```{r}
+Police_Force <- read.csv("../../data/original/Police_Use_of_Force.csv")
+
+
+#Police use of force
+sp_force_data <- Police_Force
+coordinates(sp_force_data) <- ~X+Y
+proj4string(ward9_blocks) #check projection
+proj4string(sp_force_data) <- CRS("+proj=longlat +datum=NAD83 +no_defs")
+
+sp_force_data <- spTransform(sp_force_data, proj4string(ward9_blocks))
+
+over_data_force <- over(sp_force_data, ward9_blocks)
+
+force_data_census <- cbind(Police_Force, over_data_force)
+force_data_census <- force_data_census[is.na(force_data_census$total_pop) == FALSE, ]
+write_csv(force_data_census, "../../data/working/ward_9_blockgroups/use_of_force/obs_points_with_bg_level_cov.csv")
+
+```
+
+
+
+Doing the same thing for ward 8
+
+
+```{r}
+load("../../data/working/Census_Blocks_Data.Rdata")
+
+ward8_for_subsetting <- minn_wards[which(minn_wards$BDNUM == "8"),] %>%
+  st_as_sf() %>%
+  st_transform(., "+proj=longlat +datum=NAD83 +no_defs")
+
+blocks3 <- 
+  st_as_sf(minneapolis_blocks, 
+           coords = c("longitude", "latitude"), 
+           crs = 4326, 
+           dim = "XY")
+
+blocks3 <- 
+  st_transform(blocks3, 
+               "+proj=longlat +datum=NAD83 +no_defs")
+
+# Calculate area and tidy up
+intersect_pct_ward8 <- st_intersection(ward8_for_subsetting, blocks3) %>% 
+   mutate(intersect_area = st_area(.)) %>%   # create new column with shape area
+   dplyr::select(GEOID, intersect_area) %>%   # only select columns needed to merge
+   st_drop_geometry()  # drop geometry as we don't need it
+
+# Create a fresh area variable for counties
+blocks3 <- mutate(blocks3, blocks_area = st_area(blocks3))
+
+
+#We don't have unique NAMES, filtering to only having the highest intersect_area
+intersect_pct_subset_ward8 <- intersect_pct_ward8 %>%
+  arrange(GEOID, desc(intersect_area)) %>%
+  group_by(GEOID) %>%
+  slice_max(intersect_area)
+
+# Merge by county name
+blocks3 <- merge(blocks3, intersect_pct_subset_ward8, by = "GEOID", all.x = TRUE)
+
+# Calculate coverage
+blocks3 <- blocks3 %>% 
+   mutate(coverage = as.numeric(intersect_area/blocks_area))
+
+
+#Investigating coverage
+blocks_subsetting3 <- blocks3 %>%
+  arrange(desc(coverage))
+
+#Change this to 28 if we want the other two block groups that partially overlapped
+blocks_subsetting4 <- head(blocks_subsetting3, 29)
+
+ward8_blocks <- minneapolis_blocks[minneapolis_blocks$GEOID %in% blocks_subsetting4$GEOID,]
+
+ward8_blocks_fortify <- broom::tidy(ward8_blocks)
+ward8_blocks$id <- row.names(ward8_blocks)
+ward8_blocks_fortify <- left_join(ward8_blocks_fortify, ward8_blocks@data)
+
+ward8 <-st_crop(mn_wards, xmin = -93.294, xmax = -93.244, ymin = 44.908, ymax = 44.952) %>%
+  as_Spatial()
+
+#ward8_map <- ggmap(get_map(c(left = -93.294, bottom = 44.908, 
+#                            right = -93.244, top = 44.9521), source = "stamen"))
+
+ggmap(get_map(c(left = -93.294, bottom = 44.908, 
+                            right = -93.244, top = 44.9521), source = "stamen")) + geom_polygon(data= ward8_blocks_fortify, 
+                        aes(x = long, y = lat, group = group), 
+                        col = "blue") + 
+            geom_polygon(data= ward8, 
+                        aes(x = long, y = lat, group = group), 
+                        col = "red", fill = NA)
+```
+
+```{r}
+save(ward8_blocks,
+     file = "../../data/working/ward_8_blockgroups/Ward8_Blocks.Rdata")
+```
+
+
+```{r}
+Police_Force <- read.csv("../../data/original/Police_Use_of_Force.csv")
+
+
+#Police use of force
+sp_force_data2 <- Police_Force
+coordinates(sp_force_data2) <- ~X+Y
+proj4string(ward8_blocks) #check projection
+proj4string(sp_force_data2) <- CRS("+proj=longlat +datum=NAD83 +no_defs")
+
+sp_force_data2 <- spTransform(sp_force_data2, proj4string(ward8_blocks))
+
+over_data_force2 <- over(sp_force_data2, ward8_blocks)
+
+force_data_census2 <- cbind(Police_Force, over_data_force2)
+force_data_census2 <- force_data_census2[is.na(force_data_census2$total_pop) == FALSE, ]
+
+
+write_csv(force_data_census2, "../../data/working/ward_8_blockgroups/use_of_force/obs_points_with_bg_level_cov2.csv")
+```
+
+
+```{r}
+ggmap(get_map(c(left = -93.294, bottom = 44.908, 
+                            right = -93.244, top = 44.9521), source = "stamen")) + geom_polygon(data= ward8_blocks_fortify, 
+                        aes(x = long, y = lat, group = group, fill = med_hh_income), 
+                        col = "blue") + 
+  scale_fill_distiller(palette = "Spectral")
+```
+

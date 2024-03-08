@@ -1,0 +1,563 @@
+---
+title: "census_and_spatial_testing"
+output: pdf_document
+date: "2023-01-24"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(sp)
+library(tigris)
+library(ggmap)
+library(tidycensus)
+library(maditr)
+library(spdep)
+library(spatialreg)
+library(gridExtra)
+library(sf)
+```
+
+The only relevant lines of code in this file are some chunks in lines 360 and below.
+
+## Use of Force Data
+
+```{r}
+use_of_force_data <- read_csv("../../data/original/Police_Use_of_Force.csv")
+use_of_force_clean <- use_of_force_data %>% filter(X != 0 & Y != 0)
+
+minneapolis_tracts <- tracts("Minnesota", c("Hennepin"))
+minneapolis_tracts <- as_Spatial(minneapolis_tracts)
+#minneapolis_tracts <- minneapolis_tracts[-which(minneapolis_tracts$ALAND ==0 & minneapolis_tracts$AWATER >0),] #Unnecessary, I think
+
+minn_map <- ggmap(get_map(c(left = -93.35, bottom = 44.88, 
+                         right = -93.18, top = 45.06), source = "stamen"))
+
+ward9_map <- ggmap(get_map(c(left = -93.28, bottom = 44.933, 
+                         right = -93.227, top = 44.963), source = "stamen"))
+
+mn_wards <- st_read("../../data/original/City_Council_Wards/WARDS.shp") 
+
+ward9 <-st_crop(mn_wards, xmin = -93.28, xmax = -93.227, ymin = 44.933, ymax = 44.963) %>%
+  as_Spatial()
+```
+
+```{r}
+coordinates(use_of_force_clean) <- ~X+Y
+proj4string(use_of_force_clean)
+proj4string(use_of_force_clean) <- proj4string(minneapolis_tracts)
+#proj4string(use_of_force_clean)
+
+over_dataset_mn <- over(use_of_force_clean, minneapolis_tracts)
+length(which(is.na(over_dataset_mn$GEOID))) #11 are outside of the census tracts shown here
+use_of_force_clean <- use_of_force_clean[-which(is.na(over_dataset_mn$GEOID)),] %>%
+  as.data.frame()
+
+#now need to aggregate by tract
+agg_dat_mn <- plyr::count(over_dataset_mn, c('GEOID'))
+agg_dat_mn$GEOID <- as.factor(agg_dat_mn$GEOID)
+colnames(agg_dat_mn) <- c("GEOID", "num_force")
+
+#join to geographic data
+minneapolis_tracts@data <- left_join(minneapolis_tracts@data, agg_dat_mn, 
+                                     by = (GEOID = "GEOID"))
+#View(minneapolis_tracts@data)
+```
+
+```{r}
+minneapolis_fortify <- broom::tidy(minneapolis_tracts)
+minneapolis_tracts$id <- row.names(minneapolis_tracts)
+minneapolis_fortify <- left_join(minneapolis_fortify, minneapolis_tracts@data)
+
+minn_map + geom_polygon(data= minneapolis_fortify, aes(x = long, y = lat, group = group, fill = num_force), col = "black")
+```
+
+```{r}
+#census_api_key("my_api_key", install = TRUE)
+
+#check to make sure your census key is there:
+#Sys.getenv("CENSUS_API_KEY")
+```
+
+```{r}
+#An aside
+#use_of_force_data$CaseNumber
+
+#use_of_force_renamed <- use_of_force_data %>%
+#  rename("Case_Number" = "CaseNumber") %>%
+  
+
+
+#combined <- rbind()
+```
+
+```{r}
+minn_census <- get_acs(geography = "tract", 
+                         variables = c("B01003_001E", 
+                                       "B01001_002E", "B01001_026E",
+                                       "B02008_001E", "B02009_001E", 
+                                       "B02010_001E", "B02011_001E", 
+                                       "B02012_001E", "B02013_001E", 
+                                       "B03001_002E", "B03001_003E", 
+                                       "B06011_001E", "B06012_002E", 
+                                       "B06012_003E", "B23025_003E", 
+                                       "B23025_004E", "B23025_005E"), year = 2021,
+                         state = "MN", county = c("Hennepin County"), 
+                         geometry = F)
+
+code_book_mn <- rbind(c("B01003_001", "total_pop"),
+                   c("B01001_002", "total_male"),
+                   c("B01001_026", "total_female"),
+                   c("B02008_001", "total_white"), 
+                   c("B02009_001", "total_black"), 
+                   c("B02010_001", "total_native"), 
+                   c("B02011_001", "total_asian"), 
+                   c("B02012_001", "total_islander"), 
+                   c("B02013_001", "total_otherrace"), 
+                   c("B03001_002", "total_not_hispanic"), 
+                   c("B03001_003", "total_hispanic"), 
+                   c("B06011_001", "med_income"), 
+                   c("B06012_002", "below_pov_level"), 
+                   c("B06012_003", "100_149_above_pov_level"), 
+                   c("B23025_003", "total_labor_force"), 
+                   c("B23025_004", "total_employed"), 
+                   c("B23025_005", "total_unemployed"))
+
+code_book_mn <- as.data.frame(code_book_mn)
+colnames(code_book_mn) <- c("variable", "var_name")
+
+minn_census <- left_join(minn_census, code_book_mn)
+
+#format the data so there is a row for each census tract and column for every variable
+minn_acs_data <- maditr::dcast(minn_census, GEOID ~ var_name, value.var = "estimate", fun.aggregate = NULL)
+
+#subset to only data that is in the shape file
+minn_acs_data <- minn_acs_data[which(minn_acs_data$GEOID %in% minneapolis_tracts$GEOID),] 
+
+#new variable for percent unemployed
+minn_acs_data$perc_unemployed <- minn_acs_data$total_unemployed/minn_acs_data$total_labor_force
+
+# Combine dataset with spatial dataset by GEOID
+minneapolis_tracts@data <- left_join(minneapolis_tracts@data, minn_acs_data)
+```
+
+Plot census data
+```{r}
+#plotting code from last time
+minneapolis_fortify <- broom::tidy(minneapolis_tracts)
+minneapolis_tracts$id <- row.names(minneapolis_tracts)
+minneapolis_fortify <- left_join(minneapolis_fortify, minneapolis_tracts@data)
+
+#replot the shapefile
+minn_map + geom_polygon(data= minneapolis_fortify, 
+                          aes(x = long, y = lat, group = group, 
+                              fill = perc_unemployed), col = "black")
+```
+
+Plotting shape file
+
+```{r}
+minn_wards <- st_read("../../data/original/City_Council_Wards/WARDS.shp") %>%
+  as_Spatial()
+
+#plot(minn_wards)
+```
+
+```{r}
+wards_fortify <- broom::tidy(minn_wards)
+minn_wards$id <- row.names(minn_wards)
+wards_fortify <- left_join(wards_fortify, minn_wards@data)
+
+#minn_map + geom_polygon(data= wards_fortify, 
+#                        aes(x = long, y = lat, group = group), 
+#                        fill = NA, col = "black")
+minn_map + geom_polygon(data= wards_fortify, 
+                        aes(x = long, y = lat, group = group,
+                            fill = BDNUM), 
+                        col = "black")
+```
+
+Ignore everything down until line 360
+
+```{r}
+#sp_use_of_force_data <- use_of_force_data
+#coordinates(sp_use_of_force_data) <- ~X+Y
+
+coordinates(use_of_force_clean) <- ~X+Y
+proj4string(use_of_force_clean)
+proj4string(use_of_force_clean) <- proj4string(minn_wards)
+```
+
+```{r}
+over_dataset_wards <- over(use_of_force_clean, minn_wards)
+length(which(is.na(over_dataset_wards$BDNUM))) #37 are outside of the wards shown here
+use_of_force_clean <- use_of_force_clean[-which(is.na(over_dataset_wards$BDNUM)),] %>%
+  as.data.frame()
+
+#now need to aggregate by wards
+agg_dat_wards <- plyr::count(over_dataset_wards, c('BDNUM'))
+agg_dat_wards$BDNUM <- as.factor(agg_dat_wards$BDNUM)
+colnames(agg_dat_wards) <- c("BDNUM", "num_force")
+
+#join to geographic data
+minn_wards@data <- left_join(minn_wards@data, agg_dat_wards, 
+                                     by = (BDNUM = "BDNUM"))
+```
+
+```{r}
+wards_fortify <- broom::tidy(minn_wards)
+minn_wards$id <- row.names(minn_wards)
+wards_fortify <- left_join(wards_fortify, minn_wards@data)
+
+minn_map + geom_polygon(data= wards_fortify, aes(x = long, y = lat, group = group, fill = num_force), col = "black")
+```
+
+
+Take 2
+
+```{r}
+#make spatial object 
+sp_use_of_force <- use_of_force_clean
+coordinates(sp_use_of_force) <- ~X+Y
+
+#need to project these datasets to have the same projection
+proj4string(minn_wards) #check projection
+proj4string(sp_use_of_force) <- CRS("+proj=longlat +datum=NAD83 +no_defs")
+
+#transform the projection of the crime data to match the wards
+sp_use_of_force <- spTransform(sp_use_of_force, proj4string(minn_wards))
+
+#overlay the two
+over_data <- over(sp_use_of_force, minn_wards)
+
+#how many points are outside of these wards?
+length(which(is.na(over_data$BDNUM))) #1611
+
+#combine ward information with crime information
+use_of_force_full <- cbind(use_of_force_clean, over_data)
+
+#get count of events per ward 
+agg_data <- over_data %>% group_by(BDNUM) %>% tally() %>%
+  rename(num_force = "n")
+
+wards_fortify <- left_join(wards_fortify, agg_data)
+
+#plot number of crimes by wards
+minn_map + geom_polygon(data= wards_fortify, 
+                        aes(x = long, y = lat, group = group,
+                            fill = num_force), 
+                        col = "black") +
+  scale_fill_distiller(palette = "Spectral")
+```
+
+
+
+
+Take 4
+
+```{r}
+minneapolis_tracts <- tracts("Minnesota", c("Hennepin"))
+minneapolis_tracts <- as_Spatial(minneapolis_tracts)
+
+minn_census <- get_acs(geography = "tract", 
+                         variables = c("B01003_001E", 
+                                       "B01001_002E", "B01001_026E",
+                                       "B02008_001E", "B02009_001E", 
+                                       "B02010_001E", "B02011_001E", 
+                                       "B02012_001E", "B02013_001E", 
+                                       "B03001_002E", "B03001_003E", 
+                                       "B06011_001E", "B06012_002E", 
+                                       "B06012_003E", "B23025_003E", 
+                                       "B23025_004E", "B23025_005E"), year = 2021,
+                         state = "MN", county = c("Hennepin County"), 
+                         geometry = F)
+
+code_book_mn <- rbind(c("B01003_001", "total_pop"),
+                   c("B01001_002", "total_male"),
+                   c("B01001_026", "total_female"),
+                   c("B02008_001", "total_white"), 
+                   c("B02009_001", "total_black"), 
+                   c("B02010_001", "total_native"), 
+                   c("B02011_001", "total_asian"), 
+                   c("B02012_001", "total_islander"), 
+                   c("B02013_001", "total_otherrace"), 
+                   c("B03001_002", "total_not_hispanic"), 
+                   c("B03001_003", "total_hispanic"), 
+                   c("B06011_001", "med_income"), 
+                   c("B06012_002", "below_pov_level"), 
+                   c("B06012_003", "100_149_above_pov_level"), 
+                   c("B23025_003", "total_labor_force"), 
+                   c("B23025_004", "total_employed"), 
+                   c("B23025_005", "total_unemployed"))
+
+code_book_mn <- as.data.frame(code_book_mn)
+colnames(code_book_mn) <- c("variable", "var_name")
+
+minn_census <- left_join(minn_census, code_book_mn)
+
+#format the data so there is a row for each census tract and column for every variable
+minn_acs_data <- maditr::dcast(minn_census, GEOID ~ var_name, value.var = "estimate", fun.aggregate = NULL)
+
+#subset to only data that is in the shape file
+minn_acs_data <- minn_acs_data[which(minn_acs_data$GEOID %in% minneapolis_tracts$GEOID),] 
+
+#new variable for percent unemployed
+minn_acs_data$perc_unemployed <- minn_acs_data$total_unemployed/minn_acs_data$total_labor_force
+
+# Combine dataset with spatial dataset by GEOID
+minneapolis_tracts@data <- left_join(minneapolis_tracts@data, minn_acs_data)
+
+proj4string(minneapolis_tracts)
+proj4string(minn_wards) #check projection
+proj4string(minn_wards) <- CRS("+proj=longlat +datum=NAD83 +no_defs")
+proj4string(minn_wards) <- proj4string(minneapolis_tracts)
+
+minn_wards <- spTransform(minn_wards, proj4string(minneapolis_tracts))
+
+#overlay the two
+over_data_test <- over(minneapolis_tracts, minn_wards)
+
+minneapolis_tracts@data <- cbind(minneapolis_tracts@data, over_data_test)
+
+minneapolis_tracts <- minneapolis_tracts[-which(is.na(over_data_test$BDNUM)),]
+#plot(minneapolis_tracts)
+```
+Plot of percent unemployed by census tract in Minneapolis (for the most part)
+
+```{r}
+#wards_fortify <- broom::tidy(minn_wards)
+#minn_wards$id <- row.names(minn_wards)
+#wards_fortify <- left_join(wards_fortify, minn_wards@data)
+tracts_fortify <- broom::tidy(minneapolis_tracts)
+minneapolis_tracts$id <- row.names(minneapolis_tracts)
+tracts_fortify <- left_join(tracts_fortify, minneapolis_tracts@data)
+
+#plot number of crimes by wards
+minn_map + geom_polygon(data= tracts_fortify, 
+                        aes(x = long, y = lat, group = group,
+                            fill = perc_unemployed), 
+                        col = "black") +
+  scale_fill_distiller(palette = "Spectral")
+```
+
+```{r}
+minn_map + geom_polygon(data= tracts_fortify, 
+                        aes(x = long, y = lat, group = group,
+                            fill = med_income), 
+                        col = "black") +
+  scale_fill_distiller(palette = "Spectral")
+
+minn_map + geom_polygon(data= tracts_fortify, 
+                        aes(x = long, y = lat, group = group,
+                            fill = total_pop), 
+                        col = "black") +
+  scale_fill_distiller(palette = "Spectral")
+
+minn_map + geom_polygon(data= tracts_fortify, 
+                        aes(x = long, y = lat, group = group,
+                            fill = below_pov_level/total_pop), 
+                        col = "black") +
+  scale_fill_distiller(palette = "Spectral")
+```
+
+Investigating the NA median household income block group in ward 9. Median(neighbor_income) is the value we imputed for the NA value.
+
+```{r}
+load("../../data/working/ward_9_blockgroups/Ward9_Blocks.Rdata")
+
+ward9_blocks_fortify <- broom::tidy(ward9_blocks)
+ward9_blocks$id <- row.names(ward9_blocks)
+ward9_blocks_fortify <- left_join(ward9_blocks_fortify, ward9_blocks@data)
+
+
+load("../../data/working/Census_Blocks_Data.Rdata")
+
+minn_blocks_fortify <- broom::tidy(minneapolis_blocks)
+minneapolis_blocks$id <- row.names(minneapolis_blocks)
+minn_blocks_fortify <- left_join(minn_blocks_fortify, minneapolis_blocks@data)
+
+
+ward9_test <- st_as_sf(minneapolis_blocks, 
+           coords = c("longitude", "latitude"), 
+           crs = 4326, 
+           dim = "XY")
+
+ward9_test <- st_transform(ward9_test, "+proj=longlat +datum=NAD83 +no_defs")
+
+surrounding_na <-st_crop(ward9_test, xmin = -93.26, xmax = -93.215, ymin = 44.930, ymax = 44.963) %>%
+  as_Spatial()
+
+surrounding_fortify <- broom::tidy(surrounding_na)
+surrounding_na$id <- row.names(surrounding_na)
+surrounding_fortify <- left_join(surrounding_fortify, surrounding_na@data)
+
+ggmap(get_map(c(left = -93.2601, bottom = 44.9299, 
+                         right = -93.2149, top = 44.9631), source = "stamen")) + geom_polygon(data= surrounding_fortify, 
+                        aes(x = long, y = lat, group = group, fill = med_hh_income), 
+                        col = "blue") + 
+  #geom_text(label = paste0(med_hh_income), size = 3, 
+  #          position = position_stack(vjust = 0)) + 
+  #geom_text(data = surrounding_fortify, aes(x=long, y=lat, group=group, label=med_hh_income), size = 3, hjust=0, vjust=0) + 
+  scale_fill_distiller(palette = "Spectral") + 
+  labs(x = "Longitude", y = "Latitude")
+
+
+minn_nb <- poly2nb(ward9_blocks) #Number 16  is NA
+minn_nb2 <- poly2nb(minneapolis_blocks)
+#minn_nb2 <- poly2nb(minneapolis_blocks, queen = FALSE)
+which(minneapolis_blocks@data$GEOID == "270531088002") #124
+
+list_test <- minn_nb2[[124]]
+neighbor_income <- c()
+for (i in seq_along(list_test)) {
+  neighbor_income <- append(neighbor_income, minneapolis_blocks@data$med_hh_income[list_test[i]])
+}
+mean(neighbor_income)
+median(neighbor_income)
+
+```
+
+Not important; preliminary density plot of before and after George Floyd's murder
+
+```{r}
+ward9_map <- ggmap(get_map(c(left = -93.28, bottom = 44.933, 
+                         right = -93.227, top = 44.963), source = "stamen"))
+ward9 <-st_crop(mn_wards, xmin = -93.28, xmax = -93.227, ymin = 44.933, ymax = 44.963) %>%
+  as_Spatial()
+mn_wards <- st_read("../../data/original/City_Council_Wards/WARDS.shp") 
+
+obs_pts_and_covs <- read.csv("../../data/working/ward_9_blockgroups/use_of_force/obs_points_with_bg_level_cov.csv")
+test <- obs_pts_and_covs %>%
+  filter(ResponseDate < '2020-01-01')
+
+test2 <- obs_pts_and_covs %>%
+  filter(ResponseDate > '2021-01-01')
+
+
+ward9_map +
+    stat_density_2d(data = test, aes(x=X, y=Y, fill = ..level..), geom = "polygon", alpha = .5)+
+  geom_hline(yintercept = 44.9483, size = 1.5, color = "Yellow") + 
+   geom_polygon(data= ward9, 
+                        aes(x = long, y = lat, group = group), 
+                        fill = NA, col = "black", size = 1)+
+  scale_fill_gradient2(low = "yellow", mid = "red", high = "purple",midpoint = 1200) +
+  labs(title = "Before George Floyd") + 
+    theme(axis.text.x = element_blank(), axis.text.y = element_blank(), 
+        axis.ticks = element_blank(),
+        axis.title.y=element_blank(), axis.title.x=element_blank(),
+        plot.title = element_text(hjust = 0.5))
+
+ward9_map +
+    stat_density_2d(data = test2, aes(x=X, y=Y, fill = ..level..), geom = "polygon", alpha = .5)+
+  geom_hline(yintercept = 44.9483, size = 1.5, color = "Yellow") + 
+   geom_polygon(data= ward9, 
+                        aes(x = long, y = lat, group = group), 
+                        fill = NA, col = "black", size = 1)+
+  scale_fill_gradient2(low = "yellow", mid = "red", high = "purple",midpoint = 1200) +
+  labs(title = "After George Floyd") + 
+  theme(axis.text.x = element_blank(), axis.text.y = element_blank(), 
+        axis.ticks = element_blank(),
+        axis.title.y=element_blank(), axis.title.x=element_blank(),
+        plot.title = element_text(hjust = 0.5))
+```
+
+Plot of integration points
+
+```{r}
+integ_points <- read_csv("../../data/working/ward_9_blockgroups/over_simpoints_cov_10000int_points.csv")
+
+ward9_blocks_fortify <- broom::tidy(ward9_blocks)
+ward9_blocks$id <- row.names(ward9_blocks)
+ward9_blocks_fortify <- left_join(ward9_blocks_fortify, ward9_blocks@data)
+
+ggmap(get_map(c(left = -93.28, bottom = 44.93, 
+                         right = -93.227, top = 44.963), source = "stamen")) + geom_polygon(data= ward9_blocks_fortify, 
+                        aes(x = long, y = lat, group = group), 
+                        col = "blue", fill = NA) + 
+  geom_point(data = integ_points, aes(x = x, y = y), size = 0.5) + 
+  labs(title = "10,000 Integration Points Over Ward 9") + 
+    theme(axis.text.x = element_blank(), axis.text.y = element_blank(), 
+        axis.ticks = element_blank(),
+        axis.title.y=element_blank(), axis.title.x=element_blank(),
+        plot.title = element_text(hjust = 0.5))
+```
+
+Use of force plot (not important)
+
+```{r}
+use_of_force_data <- read_csv("../../data/original/Police_Use_of_Force.csv")
+use_of_force_clean <- use_of_force_data %>% filter(X != 0 & Y != 0)
+Police_Incidents <- read_csv("../../data/working/Police_Incidents.csv")
+Crime_Data <- read_csv("../../data/original/Crime_Data.csv")
+
+minn_map <- ggmap(get_map(c(left = -93.35, bottom = 44.88, 
+                         right = -93.18, top = 45.06), source = "stamen"))
+load("../../data/working/Census_Blocks_Data.Rdata")
+minn_blocks_fortify <- broom::tidy(minneapolis_blocks)
+minneapolis_blocks$id <- row.names(minneapolis_blocks)
+minn_blocks_fortify <- left_join(minn_blocks_fortify, minneapolis_blocks@data)
+
+minn_wards <- st_read("../../data/original/City_Council_Wards/WARDS.shp") %>%
+  as_Spatial()
+wards_fortify <- broom::tidy(minn_wards)
+minn_wards$id <- row.names(minn_wards)
+wards_fortify <- left_join(wards_fortify, minn_wards@data)
+
+minn_map + 
+    geom_polygon(data= wards_fortify, 
+                        aes(x = long, y = lat, group = group), 
+                        fill = NA, col = "red") + 
+  geom_point(data = use_of_force_clean, aes(x=X, y=Y), size = 0.8, alpha = 0.5) + 
+    labs(title = "Use of Force") + 
+    theme(axis.text.x = element_blank(), axis.text.y = element_blank(), 
+        axis.ticks = element_blank(),
+        axis.title.y=element_blank(), axis.title.x=element_blank(),
+        plot.title = element_text(hjust = 0.5))
+```
+
+Median household income plot for all of Minneapolis (used in presentation, not paper)
+
+```{r}
+minn_map + 
+    geom_polygon(data= minn_blocks_fortify, 
+                        aes(x = long, y = lat, group = group, fill = med_hh_income), 
+                        col = "tan", lty = "dotted") + 
+    scale_fill_distiller(palette = "Spectral") + 
+    labs(fill = "Median\nhousehold\nincome") + 
+    theme(axis.text.x = element_blank(), axis.text.y = element_blank(), 
+        axis.ticks = element_blank(),
+        axis.title.y=element_blank(), axis.title.x=element_blank(),
+        plot.title = element_text(hjust = 0.5))
+```
+
+Irrelevant
+
+```{r}
+load("../../data/working/ward_9_blockgroups/Ward9_Blocks.Rdata")
+polygons <- as(ward9_blocks, "SpatialPolygons")
+poly_one <- st_transform(st_union(st_as_sf(polygons)), crs=CRS("+proj=longlat +datum=NAD83 +no_defs"))
+ward9_blocks_one <- poly_one %>% as_Spatial()
+
+proj4string(ward9_blocks_one) #check projection
+ward9_one_bg_tidy <- broom::tidy(ward9_blocks_one)
+ward9_blocks_one$id <- row.names(ward9_blocks_one)
+
+ward9_blocks_map <- ggmap(get_map(c(left = -93.28, bottom = 44.93, 
+                         right = -93.227, top = 44.963), source = "stamen"))
+
+ggmap(get_map(c(left = -93.28, bottom = 44.93, 
+                         right = -93.227, top = 44.963), source = "stamen")) +
+   geom_polygon(data= ward9_blocks_one,
+                aes(x = long, y = lat, group = group), 
+                col = "black", linewidth=1, fill=NA) +
+   geom_point(data=use_of_force_data, aes(x=X, y=Y), alpha=0.3, size=1) +
+  geom_polygon(data= ward9_tidy,
+                aes(x = long, y = lat, group = group),
+                col = "red", fill = NA, linewidth=1) +
+  labs(title = "Police Use of Force Incidents \n in Minneapolis") +
+  theme(axis.title = element_blank(),
+        axis.text = element_blank(),
+        axis.ticks = element_blank()) 
+```
+
+

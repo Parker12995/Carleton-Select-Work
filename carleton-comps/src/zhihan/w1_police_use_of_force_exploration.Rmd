@@ -1,0 +1,55 @@
+---
+title: "Police Use of Force Exploration W1"
+date: '2023-01-04'
+---
+
+```{r}
+library(ggplot2)
+```
+
+```{r}
+data <- read.csv("../../data/original/Police_Use_of_Force.csv")
+```
+
+Dimensionality of dataset
+
+- 30 variables
+- 38394 rows
+
+```{r}
+data
+```
+
+Character data types need to casted to levels?
+
+```{r}
+str(data)
+```
+
+```{r}
+unique(data$Problem)
+```
+
+
+## Missing data 
+
+Proportion of rows with missing values
+
+```{r}
+mean(rowSums(is.na(data)) > 0)
+```
+
+```{r}
+mean(is.na(data$EventAge) > 0)
+```
+
+So there seems to be missing values aren't labelled by NA (e.g., SubjectInjury)
+
+## Plot
+
+```{r}
+data_subset = data[data$X != 0,]  # there seems to be one anomaly?
+ggplot(data=data_subset) +
+  geom_point(aes(x=X, y=Y, color=factor(EventAge)))
+```
+

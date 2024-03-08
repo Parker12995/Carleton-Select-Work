@@ -1,0 +1,76 @@
+---
+title: "W2 - Police Incident Data"
+output: html_document
+date: "2023-01-18"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(stringr)
+```
+
+```{r}
+Police22 <- read.csv("../../data/original/Police Incidents/Police_Incidents_2022.csv")
+Police21 <- read.csv("../../data/original/Police Incidents/Police_Incidents_2021.csv")
+Police20 <- read.csv("../../data/original/Police Incidents/Police_Incidents_2020.csv")
+Police19 <- read.csv("../../data/original/Police Incidents/Police_Incidents_2019.csv")
+Police18 <- read.csv("../../data/original/Police Incidents/Police_Incidents_2018.csv")
+Police17 <- read.csv("../../data/original/Police Incidents/Police_Incidents_2017.csv")
+Police16 <- read.csv("../../data/original/Police Incidents/Police_Incidents_2016.csv")
+Police15 <- read.csv("../../data/original/Police Incidents/Police_Incidents_2015.csv")
+Police14 <- read.csv("../../data/original/Police Incidents/Police_Incidents_2014.csv")
+Police13 <- read.csv("../../data/original/Police Incidents/Police_Incidents_2013.csv")
+
+Police1922<-rbind(Police22, Police21, Police20, Police19) 
+Police1718<-rbind(Police18, Police17)
+Police16
+Police1316<-rbind(Police16, Police15, Police14, Police13)
+Police1316<-Police1316 %>%
+  rename(OBJECTID = ESRI_OID)
+Police1318<-rbind(Police1718, Police1316)
+```
+
+```{r}
+Police1922<- Police1922 %>%
+  select(-c(OBJECTID, centerLat, centerLong)) %>%
+  rename(PublicAddress = publicaddress, CaseNumber = caseNumber,
+         Precinct = precinct, Offense = offense, GBSID=centergbsid,
+         Lat = X, Long = Y, X = centerX, Y = centerY, Neighborhood = neighborhood,
+         LastUpdateDate = LastUpdateDateETL)
+
+Police1318 <- Police1318 %>%
+  select(-OBJECTID) %>%
+  rename(CaseNumber = CCN)
+
+```
+
+Continuing from where Parker left off
+
+```{r}
+Police_Incidents$Neighborhood <- toupper(Police_Incidents$Neighborhood)
+
+Police_Incidents$Offense <- gsub(" ", "",Police_Incidents$Offense)
+
+Police_Incidents$Description <- Police_Incidents$Description %>%
+  str_replace_all(" +(?!\\w)","") %>%
+  toupper()
+
+Police_Incidents$Description[Police_Incidents$Description == "1ST DEG DOMES ASSLT"] <- "1ST DEG DOMES ASLT"
+Police_Incidents$Description[Police_Incidents$Description == "ON-LINE THEFT"] <- "ONLINE THEFT"
+
+table(Police_Incidents$Neighborhood)
+table(Police_Incidents$Offense)
+table(Police_Incidents$Description)
+```
+
+```{r}
+neighborhood.df <- table(Police_Incidents$Neighborhood) %>% as.data.frame()
+ggplot(neighborhood.df, aes(x = reorder(Var1,-Freq), y = Freq)) +
+  geom_bar(stat = "identity") +
+  labs(x = "Neighborhood") +
+  theme(axis.text.x = element_text(angle = 45, vjust = 0.5, hjust=1))
+
+```
+
+

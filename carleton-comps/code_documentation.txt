@@ -1,0 +1,55 @@
+These are the relevant files for our analysis, either in running our model, formatting / generating data, or generating plots:
+
+- data
+  - working
+    - Police_Incidents.csv: Dataset for the police incidents datasets merged together.
+    - Census_Tracts_Data.Rdata: Rdata file for all census tracts within Minneapolis, with our census variables. This was used primarily for plotting some choropleths to compare Ward 9 to Ward 8.
+    - Census_Blocks_Data.Rdata: Rdata file for all block groups within Minneapolis, with our census variables.
+    - ward_9_blockgroups:
+      - Ward9_Blocks.Rdata: Rdata file for the census data on our chosen ward 9 block groups, with our census variables.
+      - 71_knots.csv: File for the knots coordinates that we used for our LGCP models.
+      - over_simpoints_cov_10000int_points.csv: The 10,000 integration points used for most models.
+      - over_simpoints_cov_20000int_points.csv: The 20,000 integration points used for the suspicious person and during George Floyd LGCP models.
+      - use_of_force
+        - obs_points_with_bg_level_cov.csv: File for the use of force data overlaid onto the ward 9 block groups.
+    - ward_8_blockgroups:
+      - Ward8_Blocks.Rdata: Rdata file for the census data on our chosen ward 8 block groups, with our census variables.
+      - 90_knots.csv: File for the knots coordinates that we used for our LGCP models.
+      - over_simpoints_cov_10000int_points2.csv: The 10,000 integration points used for the Ward 8 LGCP model.
+      - use_of_force
+        - obs_points_with_bg_level_cov2.csv: File for the use of force data overlaid onto the ward 8 block groups.
+  - original
+    - Police_Use_of_Force.csv: Original use of force dataset used for most of our analysis.
+    - City_Council_Wards: Folder containing Minneapolis wards shape file information.
+      - WARDS.shp: The wards shape file.
+    - Police Incidents: Folder containing the original police incidents datasets, from 2008 to late March 2023. There are two datasets from 2018 due to the database system change.
+    - Crime_Data.csv: Original crime events dataset.
+- src
+  - parker
+    - police_incidents_merging.Rmd: Script for merging the police incidents datasets together.
+    - other_wards_EDA.Rmd: Investigating Ward 8.
+    - Obstruction_of_Justice.Rmd: Investigating cases tagged as obstruction of the legal process.
+    - census_data.Rmd: Script for generating the Minneapolis census tracts.
+    - census_block_data.Rmd: Script for generating the Minneapolis block groups, the Ward 9 and Ward 8 block groups, and overlaying the use of force dataset onto the Ward 9 and Ward 8 block groups to generate obs_points_with_bg_level_cov.csv and obs_points_with_bg_level_cov2.csv.
+    - census_and_spatial_testing.Rmd: Code at the end contains investigating what value to impute for the missing median household income value, a plot of the 10,000 integration points, and creating a plot for the comps presentation showing some missing median household income values.
+  - aya
+    - CSR_test_police_data.Rmd: Tests for CSR using the G and F functions, as well as associated plots (done for all three data sets)
+    - cred_int_effec_size_calculations.Rmd: Generate effective sample sizes, 95% credible intervals for subsetted LGCP output, and plots depicting these intervals
+    - correlation_matrix_calc.Rmd: Generate correlation matrix and correlation plot for census variables
+    - generating_sim_integration_points.Rmd: generate csv with integration points overlaid onto Ward 9 census block groups (with census data) as an input for the LGCP model
+    - making_presentation_figures.Rmd: make figures used in the comps presentation (notably, two choropleth plots filled in by block group total population–one with Minneapolis block groups and the other with Ward 9 block groups–as well as three plots with observations from the crimes, police incident, and police use of force data sets plotted over the shape of Minneapolis, respectively)
+  - Harper
+    - Generating Ward 8 Knots.Rmd: Generates knots for Ward 8
+    - Generating Ward 9 Knots.Rmd: Generates knots for Ward 9
+    - Ward 9 Maps.Rmd: Exploratory Data Analysis, KDE Plots for Research Questions. Many plots were used in the presentation and paper.
+  - zhihan:
+    - lgcp_simulated_data_optimized.Rmd: Code for fitting LGCP on simulated dataset using MCMC
+    - lgcp_uof_optimized_6_covariates.Rmd: Code for fitting LGCP on real datasets using MCMC; involves code for
+      - Loading and subsetting data (e.g., to suspicious-person use-of-force incidents)
+      - Loading knots
+      - Loading integration points
+      - NIMBLE code
+      - Saving samples
+    - lgcp_log_intensity_surface.Rmd: Code for plotting log intensity surface given saved MCMC samples
+
+Note: All MCMC samples are saved in the “LGCP Samples” folder in the shared drive. These files are large so we did not push them to Github.

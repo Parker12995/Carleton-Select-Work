@@ -1,0 +1,319 @@
+---
+title: "Missingness analysis for crime"
+author: "Zhihan Yang"
+---
+
+```{r}
+library(mice)
+library(lubridate)
+```
+
+```{r}
+crime_raw <- read.csv("../../data/original/Crime_Data.csv")
+crime_sub <- read.csv("../../data/original/Crime_Data.csv")
+
+min(ymd_hms(crime_raw$Reported_Date))
+max(ymd_hms(crime_raw$Reported_Date))
+```
+
+### Variables
+
+Link: https://www.minneapolismn.gov/media/-www-content-assets/documents/CrimeDashboardInfo.pdf
+
+OBJECTID
+
+Identifying:
+- Case_Number
+- Case_NumberAlt
+
+Geographical:
+- X
+- Y
+- Address
+- Precinct
+- Neighborhood
+- Ward
+- Latitude
+- Longitude
+- wgsXAnon
+- wgsYAnon
+
+Temporal:
+- Reported_Date
+- Occurred_Date
+
+Crime:
+- Type
+- NIBRS_Crime_Against
+- NIBRS_Group
+- NIBRS_Code
+- Offense_Category
+- Offense
+- Problem_Initial
+- Problem_Final
+- Crime_Count
+
+```{r}
+colnames(crime_raw)
+```
+
+### Mice plot
+
+```{r}
+md.pattern(crime_raw, rotate.names = T)
+```
+
+```{r}
+# todo: plot of missingness over time
+
+crime_sub$X[crime_sub$X == 0] = NA
+crime_sub$Y[crime_sub$Y == 0] = NA
+crime_sub$Occurred_Date[crime_sub$Occurred_Date == ""] = NA
+crime_sub$NIBRS_Crime_Against[crime_sub$NIBRS_Crime_Against == "Non NIBRS Data"] = NA
+crime_sub$NIBRS_Group[crime_sub$NIBRS_Group == "Non NIBRS Data"] = NA
+crime_sub$NIBRS_Code[crime_sub$NIBRS_Code == "Non NIBRS Data"] = NA
+crime_sub$Problem_Initial[crime_sub$Problem_Initial == ""] = NA
+crime_sub$Problem_Final[crime_sub$Problem_Final == ""] = NA
+crime_sub$Neighborhood[crime_sub$Neighborhood == ""] = NA
+crime_sub$Latitude[crime_sub$Latitude == 0] = NA
+crime_sub$Longitude[crime_sub$Longitude == 0] = NA
+crime_sub$wgsXAnon[crime_sub$wgsXAnon == 0] = NA
+crime_sub$wgsYAnon[crime_sub$wgsYAnon == 0] = NA
+crime_sub$Address[crime_sub$Address == "No Address" | crime_sub$Address == ""] = NA
+
+md.pattern(crime_sub, rotate.names=T)
+```
+
+### X (M)
+
+```{r}
+# problematic entries
+hist(crime_raw$X, breaks=100)
+hist(crime_raw$X[crime_raw$X < 0], breaks=100)
+```
+
+```{r}
+hist(ymd_hms(crime_raw$Occurred_Date[crime_raw$X == 0]), breaks="month")
+hist(ymd_hms(crime_raw$Reported_Date[crime_raw$X == 0]), breaks="month")
+```
+
+### Y (M)
+
+```{r}
+# problematic entries
+hist(crime_raw$Y, breaks=100)
+hist(crime_raw$Y[crime_raw$Y > 0], breaks=100)
+```
+
+```{r}
+hist(ymd_hms(crime_raw$Occurred_Date[crime_raw$Y == 0]), breaks="month")
+hist(ymd_hms(crime_raw$Reported_Date[crime_raw$Y == 0]), breaks="month")
+```
+
+```{r}
+sum(crime_raw$X == 0)
+sum(crime_raw$Y == 0)
+sum(which(crime_raw$X == 0) == which(crime_raw$Y == 0))
+```
+
+```{r}
+crime_raw[crime_raw$X == 0, ]
+```
+
+### Type
+
+```{r}
+# no missingness
+unique(crime_raw$Type)
+```
+
+### Case number
+
+```{r}
+# no missingness
+crime_case_numbers_unique <- unique(crime_raw$Case_Number)
+hist(sapply(crime_case_numbers_unique, nchar, simplify = T))
+```
+
+### Case Number Alt
+
+```{r}
+crime_case_numbers_unique <- unique(crime_raw$Case_NumberAlt)
+hist(as.numeric(sapply(crime_case_numbers_unique, nchar, simplify = T)))
+```
+
+### Reported date
+
+```{r}
+hist(ymd_hms(crime_raw$Reported_Date), breaks="week")
+reported_date_lengths <- as.numeric(sapply(crime_raw$Reported_Date, nchar))  # make sure the dates make sense
+table(reported_date_lengths)  # another sanity check
+```
+
+### Occurred date (M)
+
+```{r}
+hist(ymd_hms(crime_raw$Occurred_Date), breaks="week")
+occurred_date_lengths <- as.numeric(sapply(crime_raw$Occurred_Date, nchar))  # make sure the dates make sense
+table(occurred_date_lengths)  # another sanity check
+which(occurred_date_lengths == 0)
+crime_raw[15981, ]
+```
+
+```{r}
+table(year(ymd_hms(crime_raw$Occurred_Date)))
+```
+
+```{r}
+hist(ymd_hms(crime_raw$Reported_Date)[year(ymd_hms(crime_raw$Occurred_Date)) <= 2018], breaks="month")
+```
+
+### NIBRS_Crime_Against (M)
+
+```{r}
+unique(crime_raw$NIBRS_Crime_Against)
+```
+
+### NIBRS_Group (M)
+
+```{r}
+unique(crime_raw$NIBRS_Group)
+```
+
+### NIBRS_Code (M)
+
+```{r}
+unique(crime_raw$NIBRS_Code)
+```
+
+### Offense Category
+
+```{r}
+unique(crime_raw$Offense_Category)
+```
+
+### Offense
+
+```{r}
+unique(crime_raw$Offense)
+```
+
+### Problem_Initial (M)
+
+```{r}
+# unique(crime_raw$Problem_Initial)
+sum(crime_raw$Problem_Initial == "")
+```
+
+### Problem_Final (M)
+
+```{r}
+# unique(crime_raw$Problem_Final)
+sum(crime_raw$Problem_Final == "")
+```
+
+### Address (M)
+
+```{r}
+unique_addresses <- sort(unique(crime_raw$Address))
+address_lengths <- as.numeric(sapply(unique_addresses, nchar))
+hist(address_lengths, breaks=100)
+min(address_lengths)
+max(address_lengths)
+```
+
+```{r}
+unique_addresses[which(address_lengths < 15)]
+```
+
+```{r}
+sum(crime_raw$Address == "")
+sum(crime_raw$Address == "No Address")
+```
+
+### Neighborhood (M)
+
+```{r}
+unique(crime_raw$Neighborhood)
+sum(crime_raw$Neighborhood == "")
+```
+
+### Latitude (M)
+
+```{r}
+hist(crime_raw$Latitude)
+```
+
+```{r}
+hist(crime_raw$Latitude[crime_raw$Latitude > 0])
+```
+
+### Longitude (M)
+
+```{r}
+hist(crime_raw$Longitude)
+```
+
+```{r}
+hist(crime_raw$Longitude[crime_raw$Longitude < 0])
+```
+
+### wgsXAnon (M)
+
+```{r}
+hist(crime_raw$wgsXAnon)
+```
+
+```{r}
+hist(crime_raw$wgsXAnon[crime_raw$wgsXAnon < 0])
+```
+
+### wgsYAnon (M)
+
+```{r}
+hist(crime_raw$wgsYAnon)
+```
+
+```{r}
+hist(crime_raw$wgsYAnon[crime_raw$wgsYAnon > 0])
+```
+
+### Crime_Count
+
+```{r}
+unique(crime_raw$Crime_Count)
+```
+
+### OBJECTID
+
+```{r}
+dim(crime_raw)
+```
+
+```{r}
+length(unique(crime_raw$OBJECTID))
+```
+
+```{r}
+hist(crime_raw$OBJECTID)
+```
+
+### Precinct (M)
+
+```{r}
+unique(crime_raw$Precinct)
+```
+
+```{r}
+sum(is.na(crime_raw$Precinct))
+```
+
+### Ward (M)
+
+```{r}
+unique(crime_raw$Ward)
+```
+
+```{r}
+sum(is.na(crime_raw$Ward))
+```

@@ -1,0 +1,50 @@
+---
+title: "Use of Force Data EDA"
+author: "Aya Klos"
+date: "2023-02-15"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+```
+
+```{r}
+use_of_force_data <- read.csv("/Users/ayaklos/Documents/GitHub/carleton_comps_22_23/data/original/Police_Use_of_Force.csv")
+use_of_force_data <- use_of_force_data[use_of_force_data$X != 0,]
+```
+
+```{r}
+ggplot(use_of_force_data, aes(ForceType)) +
+  geom_bar() +
+  coord_flip()
+
+ggplot(use_of_force_data %>% filter(Problem == "Suspicious Person "), aes(ForceType)) +
+  geom_bar() +
+  coord_flip()
+
+ggplot(use_of_force_data %>% filter(ForceType == "Bodily Force"), aes(ForceTypeAction)) +
+  geom_bar() +
+  coord_flip()
+
+ggplot(use_of_force_data, aes(Neighborhood)) +
+  geom_bar() +
+  coord_flip()
+
+ggplot(use_of_force_data %>% filter(Problem == "Suspicious Person "), aes(Neighborhood)) +
+  geom_bar() +
+  coord_flip()
+
+ggplot(use_of_force_data, aes(Race)) +
+  geom_bar() +
+  coord_flip()
+
+ggplot(use_of_force_data %>% filter(Problem == "Suspicious Person "), aes(Race)) +
+  geom_bar() +
+  coord_flip()
+
+ggplot(use_of_force_data, aes(Problem, fill = Race)) +
+  geom_bar() +
+  coord_flip()
+```

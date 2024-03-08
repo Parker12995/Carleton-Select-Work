@@ -1,0 +1,320 @@
+---
+title: "Suspicion_EDA"
+output: pdf_document
+date: "2023-01-15"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(dplyr)
+library(tidyverse)
+library(ggplot2)
+library(ggmap)
+```
+
+## Use of Force Data
+
+```{r}
+use_of_force_data <- read_csv("../../data/original/Police_Use_of_Force.csv")
+#When checking unique(use_of_force_data$Problem), there's things like suspicious
+#vehicle, or prowler. Do these fall under suspicious person?
+#Under PrimaryOffense, there are 5314 labeled OBSTRU or POBSTR, might be obstruction
+#of legal process. Of the 5464 suspicious person cases, 1021 are labelled as such.
+
+#Look into offense codes, like what OBSTRU is.
+#Look at Is911call column
+
+suspicious_problem <- use_of_force_data %>%
+  filter(
+    str_detect(Problem, "Suspicious Person") == TRUE)
+
+suspicious_problem_coord <- suspicious_problem %>%
+  filter(X != 0 & Y != 0)
+
+minn_map <- ggmap(get_map(c(left = -93.35, bottom = 44.88, 
+                         right = -93.18, top = 45.06), source = "stamen"))
+
+#suspicious persons cases colored by race
+minn_map + 
+  geom_point(data = suspicious_problem_coord, aes(x=X, y=Y, color=factor(Race)))
+
+minn_map + 
+  geom_point(data = suspicious_problem_coord, aes(x=X, y=Y, color=factor(Is911Call))) +
+   labs(color = "Is 911 Call") +
+  xlab("Longitude") +
+  ylab("Latitude") +
+  geom_polygon(data= wards_fortify, 
+                        aes(x = long, y = lat, group = group), 
+                        fill = NA, col = "black", size = .2)
+sum(suspicious_problem$Is911Call == "No") #4684 out of 5464 
+ 
+```
+
+```{r}
+#Ward 9. Includes Midtown Phillips, East Phillips, Central, Powderhorn Park, 
+#Corcoran, and part of Longfellow.
+suspicious_ward9 <- suspicious_problem %>%
+  filter(Neighborhood %in% c("Midtown Phillips", "East Phillips", "Central", "Powderhorn Park", "Corcoran"))
+table(suspicious_ward9$Race) / nrow(suspicious_ward9)
+#Can't find demographics solely for ward 9.
+```
+
+
+## Police Incidents 2022
+
+```{r}
+Police_Incidents_2022 <- read_csv("../../data/original/Police_Incidents_2022.csv")
+unique(Police_Incidents_2022$description)
+#Nothing in this dataset about suspicious people?
+```
+
+
+## Crime Data
+
+```{r}
+Crime_Data <- read_csv("../../data/original/Crime_Data.csv")
+
+#41269 crimes were not part of the NIBRS data
+sum(Crime_Data$NIBRS_Crime_Against == "Non NIBRS Data")
+
+#When choosing what all constituted a suspicious person, I chose Problem_Initial or
+#Problem_Final, since some rows had only one be suspicious person (See row 44, or
+#Case number 19-377586)
+
+mn_wards <- st_read("../../data/original/City_Council_Wards/WARDS.shp") 
+
+ward9 <-st_crop(mn_wards, xmin = -93.28, xmax = -93.227, ymin = 44.933, ymax = 44.963) %>%
+  as_Spatial()
+
+#2680 rows
+suspicious_problem_crime <- Crime_Data %>%
+  filter(
+    str_detect(Problem_Initial, "Suspicious Person") == TRUE | 
+    str_detect(Problem_Final, "Suspicious Person") == TRUE)
+
+#289 rows
+suspicious_crime_ward9 <- suspicious_problem_crime %>%
+  filter(Ward == 9)
+
+suspicious_crime_ward9_coord <- suspicious_crime_ward9 %>%
+  filter(X != 0 & Y != 0)
+
+ward9_map <- ggmap(get_map(c(left = -93.28, bottom = 44.933, 
+                         right = -93.23, top = 44.963), source = "stamen"))
+
+#Lots of suspicious activity at East Phillips park and the Lake Street Target / 
+#old precinct area
+ward9_map + 
+  geom_jitter(data = suspicious_crime_ward9_coord, aes(x=Longitude, y=Latitude), color = "Blue", 
+              width = .0007, height = .0007) +
+  geom_hline(yintercept = 44.9483, size = 1.5, color = "Yellow") +
+  geom_polygon(data= ward9, 
+                        aes(x = long, y = lat, group = group), 
+                        fill = NA, col = "black", size = 1)
+
+ward9_map + 
+  geom_point(data = suspicious_crime_ward9_coord, aes(x=Longitude, y=Latitude), color = "Blue", 
+              width = .0007, height = .0007)+
+  geom_hline(yintercept = 44.9483, size = 1.5, color = "Yellow") +
+  geom_polygon(data= ward9, 
+                        aes(x = long, y = lat, group = group), 
+                        fill = NA, col = "black", size = 1)
+
+```
+
+##Suspicious Person - Crime Data
+
+```{r}
+#suspicious person final vs initial from Crime Data
+suspicious_problem_crime <- Crime_Data %>%
+  filter(
+    str_detect(Problem_Initial, "Suspicious Person") == TRUE | 
+    str_detect(Problem_Final, "Suspicious Person") == TRUE)
+
+initialp <- suspicious_problem_crime %>%
+  filter(str_detect(Problem_Initial, "Suspicious Person"))
+initialp %>%
+  count(Problem_Final) %>% top_n(5, n) %>%
+  arrange(desc(n))
+iptop5<- initialp %>%
+  filter(Problem_Final == "Suspicious Person (P)"|Problem_Final == "Theft (P)"|Problem_Final ==  "Damage Property-In Progress(P)"|Problem_Final == "Assault in Progress (P)" |Problem_Final == "Threats (P)")
+
+finalp <- suspicious_problem_crime %>%
+  filter(str_detect(Problem_Final, "Suspicious Person"))
+finalp %>%
+  count(Problem_Initial) %>% top_n(5, n) %>%
+  arrange(desc(n))
+fptop5<-finalp%>%
+  filter(Problem_Initial == "Suspicious Person (P)"|Problem_Initial == "On Site (P)"|Problem_Initial == "Directed Patrol (P)"|Problem_Initial == "Foot Beat (P)" |Problem_Initial == "Walk Through a Building (P)")
+
+#initial vs final problem
+FP_table <- data.frame(table(iptop5$Problem_Final)) %>%
+  rename("Problem_Final" = "Var1") %>%
+  arrange(desc(Freq))
+
+ggplot(FP_table, aes(x = reorder(Problem_Final, -Freq), 
+                                      y = Freq, fill = Problem_Final)) +
+  geom_bar(stat = "identity", show.legend = FALSE) +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1), 
+        plot.title = element_text(hjust = 0.5)) + 
+  labs(title = "Top 5 Final Problems for Cases with Suspicious Person as Initial Problem", x = "Final Problem")
+
+IP_table <- data.frame(table(fptop5$Problem_Initial)) %>%
+  rename("Problem_Initial" = "Var1") %>%
+  arrange(desc(Freq))
+
+ggplot(IP_table, aes(x = reorder(Problem_Initial, -Freq), 
+                                      y = Freq, fill = Problem_Initial)) +
+  geom_bar(stat = "identity", show.legend = FALSE) +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1), 
+        plot.title = element_text(hjust = 0.5)) + 
+  labs(title = "Top 5 Initial Problems for Cases with Suspicious Person as Final Problem", x = "Initial Problem")
+```
+
+```{r}
+#Offense
+IO5<- initialp %>%
+  group_by(Offense) %>%
+  summarise(count = n()) %>%
+  top_n(n = 5, wt = count)
+
+ggplot(IO5, aes(x = reorder(Offense, -count), 
+                                      y = count, fill = Offense)) +
+  geom_bar(stat = "identity", show.legend = FALSE) +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1), 
+        plot.title = element_text(hjust = 0.5)) + 
+  labs(title = "Top 5 Offenses for Cases with Suspicious Person as Initial Problem", x = "Offense")
+
+FO5<- finalp %>%
+  group_by(Offense) %>%
+  summarise(count = n()) %>%
+  top_n(n = 5, wt = count)
+
+ggplot(FO5, aes(x = reorder(Offense, -count), 
+                                      y = count, fill = Offense)) +
+  geom_bar(stat = "identity", show.legend = FALSE) +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1), 
+        plot.title = element_text(hjust = 0.5)) + 
+  labs(title = "Top 5 Offenses for Cases with Suspicious Person as Final Problem", x = "Offense")
+```
+
+```{r}
+
+#suspicious vehicle
+suspicious_vehicle_crime <- Crime_Data %>%
+  filter(
+    str_detect(Problem_Initial, "Suspicious Vehicle") == TRUE | 
+    str_detect(Problem_Final, "Suspicious Vehicle") == TRUE)
+
+vinitialp <- suspicious_vehicle_crime %>%
+  filter(str_detect(Problem_Initial, "Suspicious Vehicle")) 
+
+VIoffense5 <- vinitialp %>%
+  group_by(Offense) %>%
+  summarise(count = n()) %>%
+  top_n(n = 5, wt = count)
+
+vfinalp <- suspicious_vehicle_crime %>%
+  filter(str_detect(Problem_Final, "Suspicious Vehicle"))
+
+VFO5<- vfinalp %>%
+  group_by(Offense) %>%
+  summarise(count = n()) %>%
+  top_n(n = 5, wt = count)
+
+#final vs initial problem
+ggplot(vinitialp, aes(Problem_Final)) +
+  geom_bar() +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
+
+ggplot(vfinalp, aes(Problem_Initial)) +
+  geom_bar() +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
+
+#suspicious vehicle vs offense
+ggplot(VIoffense5, aes(x = reorder(Offense, -count), 
+                                      y = count, fill = Offense)) +
+  geom_bar(stat = "identity", show.legend = FALSE) +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1), 
+        plot.title = element_text(hjust = 0.5)) + 
+  labs(title = "Top 5 Offenses for Cases with Suspicious Vehicle as Initial Problem", x = "Offense")
+
+ggplot(VFO5, aes(x = reorder(Offense, -count), 
+                                      y = count, fill = Offense)) +
+  geom_bar(stat = "identity", show.legend = FALSE) +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1), 
+        plot.title = element_text(hjust = 0.5)) + 
+  labs(title = "Top 5 Offenses for Cases with Suspicious Vehicle as Final Problem", x = "Offense")
+
+#maybe look at PrimaryOffense with Problem as Suspicious Activity
+```
+
+```{r}
+#looking at type of resistance in suspicious person cases
+#NOTE: TypeOfResistance needs some recoding for continuity of variable sake
+
+Police_Force$TypeOfResistance[Police_Force$TypeOfResistance == "TENSED"] <- "Tensed"
+Police_Force$TypeOfResistance[Police_Force$TypeOfResistance == "Fled in a Vehicle"] <- "Fled in Vehicle"
+Police_Force$TypeOfResistance[Police_Force$TypeOfResistance == "Commission of a Crime"] <- "Commission of Crime"
+
+suspicious_problem_force <- Police_Force %>%
+  filter(
+    str_detect(Problem, "Suspicious Person") == TRUE, X < 0)
+Resistance_table <- data.frame(table(suspicious_problem_force$TypeOfResistance)) %>%
+  rename("TypeOfResistance" = "Var1") %>%
+  arrange(desc(Freq))
+
+ggplot(Resistance_table, aes(x = reorder(TypeOfResistance, -Freq), 
+                                      y = Freq, fill = TypeOfResistance)) +
+  geom_bar(stat = "identity", show.legend = FALSE) +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1), 
+        plot.title = element_text(hjust = 0.5)) + 
+  labs(title = "Type of Resistance for Suspicious Person as Problem", x = "Type of Resistance")
+
+suspicious_problem_vehicle <- Police_Force %>%
+  filter(
+    str_detect(Problem, "Suspicious Vehicle") == TRUE, X < 0)
+VResistance_table <- data.frame(table(suspicious_problem_vehicle$TypeOfResistance)) %>%
+  rename("TypeOfResistance" = "Var1") %>%
+  arrange(desc(Freq))
+
+ggplot(data = VResistance_table, aes(x = reorder(TypeOfResistance, -Freq), y = Freq, fill = TypeOfResistance)) +
+  geom_bar(stat = "identity", show.legend = FALSE) +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))+
+  labs(title = "Type of Resistance for Cases with Suspicious Vehicle as Problem", x = "Type of Resistance")
+```
+
+
+```{r}
+#Looking at Fight as a comparison to Suspicious Person
+suspicious_problem_fight <- Police_Force %>%
+  filter(
+    str_detect(Problem, "Fight") == TRUE, X < 0)
+
+no911Fight <- suspicious_problem_fight %>%
+  filter(Is911Call == "No") 
+#2154 cases
+
+yes911Fight <- suspicious_problem_fight %>%
+  filter(Is911Call == "Yes") 
+#1300 cases
+```
+
+```{r}
+#Type of Force plots
+Force_table <- data.frame(table(suspicious_problem_force$ForceType)) %>%
+  rename("ForceType" = "Var1") %>%
+  arrange(desc(Freq))
+VForce_table <- data.frame(table(suspicious_problem_vehicle$ForceType)) %>%
+  rename("ForceType" = "Var1") %>%
+  arrange(desc(Freq))
+ggplot(data = Force_table, aes(x = reorder(ForceType, -Freq), y = Freq, fill = ForceType)) +
+  geom_bar(stat = "identity", show.legend = FALSE) +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))+
+  labs(title = "Type of Force for Cases with Suspicious Person as Problem", x = "Type of Force")
+
+ggplot(data = VForce_table, aes(x = reorder(ForceType, -Freq), y = Freq, fill = ForceType)) +
+  geom_bar(stat = "identity", show.legend = FALSE) +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))+
+  labs(title = "Type of Force for Cases with Suspicious Vehicle as Problem", x = "Type of Force")
+```

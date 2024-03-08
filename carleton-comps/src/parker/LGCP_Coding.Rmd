@@ -1,0 +1,181 @@
+---
+title: "LGCP_Coding"
+output: pdf_document
+date: "2023-03-01"
+---
+
+```{r}
+library(dplyr)
+library(sf)
+library(ggplot2)
+library(ggmap)
+library(MASS)
+library(fields)
+library(tidyverse)
+library(sp)
+library(tigris)
+library(ggmap)
+library(tidycensus)
+library(maditr)
+library(spdep)
+library(spatialreg)
+library(gridExtra)
+library(sf)
+library(spatstat)
+```
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## R Markdown
+
+```{r}
+area()
+```
+
+
+```{r}
+minn_wards <- st_read("../../data/original/City_Council_Wards/WARDS.shp") %>%
+  as_Spatial()
+wards_fortify <- broom::tidy(minn_wards)
+minn_wards$id <- row.names(minn_wards)
+wards_fortify <- left_join(wards_fortify, minn_wards@data)
+
+minn_map <- ggmap(get_map(c(left = -93.35, bottom = 44.88, 
+                            right = -93.18, top = 45.06), source = "stamen"))
+
+lattice <- expand.grid(lon = seq(bbox(minn_wards)[1,1],bbox(minn_wards)[1,2],length.out = 20), 
+                       lat = seq(bbox(minn_wards)[2,1],bbox(minn_wards)[2,2],length.out = 20))
+
+sp_lattice <- lattice
+coordinates(sp_lattice) <- ~lon+lat
+proj4string(minn_wards) #check projection
+proj4string(sp_lattice) <- CRS("+proj=longlat +datum=WGS84 +no_defs")
+
+sp_lattice <- spTransform(sp_lattice, proj4string(minn_wards))
+over_lattice <- over(sp_lattice, minn_wards)
+lattice_full <- cbind(lattice, over_lattice)
+
+knots_and_other_stuff <- lattice_full %>%
+  filter(is.na(BDNUM) == FALSE)
+
+knots <- data.frame(lon=knots_and_other_stuff$lon, lat=knots_and_other_stuff$lat)
+
+minn_map +
+  geom_point(data = knots_and_other_stuff, aes(x=lon, y=lat)) +
+  geom_polygon(data= wards_fortify, 
+                        aes(x = long, y = lat, group = group), 
+                        fill = NA, col = "black", size = 1)
+```
+
+```{r}
+m <- nrow(knots)
+```
+
+```{r}
+knots
+```
+
+```{r}
+kernel <- function(p1, p2, sigma, phi) {
+  sigma * exp(- rdist(p1, p2) / phi)
+}
+```
+
+```{r}
+# identity covariance
+gp_on_knots <- mvrnorm(1, 
+  mu=numeric(nrow(knots)), 
+  Sigma=diag(m)
+)
+```
+
+```{r}
+knots_cov <- kernel(knots, knots, sigma=2, phi=0.1)
+set.seed(41)
+gp_on_knots <- mvrnorm(1, 
+  mu=numeric(nrow(knots)), 
+  Sigma=knots_cov
+)
+```
+
+```{r}
+minn_map +
+  geom_point(data = knots, aes(x=lon, y=lat, color=gp_on_knots)) +
+  scale_color_gradient2(low="blue", high="red", mid="gray", midpoint=0) +
+  geom_polygon(data= wards_fortify, 
+                        aes(x = long, y = lat, group = group), 
+                        fill = NA, col = "black", size = 1)
+```
+
+```{r}
+#Getting integration points for all tracts
+minn_tracts.sf <- st_as_sf(minneapolis_tracts)
+#Calculating the area for each tract
+for (i in 1:nrow(minn_tracts.sf)) {
+  minn_tracts.sf[i, 39] <- area(st_transform(st_union(minn_tracts.sf[i, ]),crs = 6345))
+}
+minn_tracts.sf$tract_area <- minn_tracts.sf$V39
+minn_tracts.sf <- minn_tracts.sf[, -39]
+
+#One method of getting number of integration points per tract
+minn_tracts.sf$num_sim_points <- round(minn_tracts.sf$tract_area / min(minn_tracts.sf$tract_area), digits = 0)
+
+#sim_points_coor will get appended to in the for loop
+sim_points_coor <- data.frame(matrix(ncol = 2, nrow = 0))
+colnames(sim_points_coor) <- c('x', 'y')
+
+set.seed(1342343)
+for (j in 1:2) {
+  for (i in 1:nrow(minn_tracts.sf)) {
+  all_tracts_loop <- st_transform(st_union(minn_tracts.sf[i, ]),crs = 6345)
+  all_tracts_win_loop <- all_tracts_loop %>% as.owin()
+  sim_points_loop <- runifpoint(minn_tracts.sf[i, ]$num_sim_points, win=all_tracts_win_loop)
+  sim_points_coor_loop <- sim_points_loop %>% as.data.frame()
+  sim_points_coor <- rbind(sim_points_coor, sim_points_coor_loop)
+  }
+}
+
+coordinates(sim_points_coor) <- ~x+y
+proj4string(sim_points_coor) <- proj4string(as_Spatial(all_tracts_loop))
+sim_points_coor <- spTransform(sim_points_coor, proj4string(minneapolis_tracts))
+```
+
+```{r}
+sim_points_coor_df <- data.frame(sim_points_coor)
+```
+
+```{r}
+minn_map +
+  geom_point(data = sim_points_coor_df, aes(x=x, y=y)) +
+  scale_color_gradient2(low="blue", high="red", mid="grey", midpoint=0) +
+  geom_polygon(data= wards_fortify, 
+                        aes(x = long, y = lat, group = group), 
+                        fill = NA, col = "black", size = 1)
+```
+
+```{r}
+#transforms integration points to the dimension of the knots
+TbyM <- kernel(sim_points_coor_df, knots, sigma=1, phi=0.1)
+dim(TbyM)
+```
+
+```{r}
+dim(solve(knots_cov))
+```
+
+```{r}
+E_w_given_w_ast <- TbyM %*% solve(knots_cov) %*% gp_on_knots
+dim(E_w_given_w_ast)
+```
+
+```{r}
+minn_map +
+  geom_point(data = sim_points_coor_df, aes(x=x, y=y, color=E_w_given_w_ast)) +
+  scale_color_gradient2(low="blue", high="red", mid="gray", midpoint=0) +
+  geom_polygon(data= wards_fortify, 
+                        aes(x = long, y = lat, group = group), 
+                        fill = NA, col = "black", size = 1)
+```
+
