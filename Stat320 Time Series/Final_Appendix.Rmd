@@ -1,0 +1,359 @@
+---
+title: "Code Appendix"
+author: "Victor Huang, Parker Johnson, and Elijah Jones"
+date: "6/6/2022"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(TSA)
+library(lubridate)
+library(readr)
+library(dplyr)
+source("http://people.carleton.edu/~apoppick/ClassData/LjungBoxPlot.R")
+transactions <- read_csv("transactions.csv")
+```
+
+## Code Appendix
+
+### Store 1
+
+```{r}
+store_1 <- transactions %>%
+  filter(store_nbr == 1) %>%
+  select(date, transactions) %>%
+  mutate(isSaturday = ifelse(wday(date) %in% 7, "Yes", "No")) %>%
+  mutate(isSunday = ifelse(wday(date) %in% 1, "Yes", "No"))
+```
+
+Initial plot of store 1 transactions
+
+```{r}
+plot(x = store_1$date, y = store_1$transactions, type = "l", xlab = "Date", 
+     ylab = "Daily Transactions", main = "Transactions for Store 1 in Quito vs. Date")
+```
+
+Plot of store 1 transactions with weekends temporarily removed
+
+```{r}
+store_1_testing <- store_1 %>%
+  filter(isSaturday == "No" & isSunday == "No")
+
+plot(x = store_1_testing$date, y = store_1_testing$transactions, type = "l", 
+     xlab = "Date", ylab = "Daily Transactions", 
+     main = "Weekday Transactions for Store 1 in Quito vs. Date")
+```
+
+Adding factor variables
+
+```{r}
+store_1 <- transactions %>%
+  filter(store_nbr == 1) %>%
+  select(date, transactions) %>%
+  mutate(isSaturday = ifelse(wday(date) %in% 7, "Yes", "No")) %>%
+  mutate(isSunday = ifelse(wday(date) %in% 1, "Yes", "No"))
+
+store_1_holidays1 <- store_1 %>%
+  filter(isSaturday == "No" & isSunday == "No") %>%
+  filter(transactions < 1000) %>% #This was done to catch most of the holidays
+  filter(date != "2016-01-04" & date != "2016-11-04" & date != "2016-12-06" & 
+           date != "2017-01-02") #Removing the non-holiday dates
+
+store_1_holidays2 <- store_1 %>%
+  filter(date == "2013-08-10" | date == "2013-11-01" | date == "2013-11-02" | 
+           date == "2013-11-04" | date == "2014-05-24" | date == "2014-08-10" | 
+           date == "2014-11-02" | date == "2015-05-24" | date == "2016-05-01" | 
+           date == "2016-10-09") #The rest of the holidays
+
+store_1_holidays <- rbind(store_1_holidays1, store_1_holidays2) %>%
+  arrange(date) #Merging the datasets into 1 that has all of the holidays
+
+store_1_december <- store_1 %>%
+  filter(date == "2013-12-18" | date == "2013-12-19" | date == "2013-12-20" | 
+           date == "2013-12-21" | date == "2013-12-22" | date == "2013-12-23" | 
+           date == "2013-12-24" | date == "2014-12-18" | date == "2014-12-19" | 
+           date == "2014-12-20" | date == "2014-12-21" | date == "2014-12-22" | 
+           date == "2014-12-23" | date == "2014-12-24" | date == "2015-12-18" | 
+           date == "2015-12-19" | date == "2015-12-20" | date == "2015-12-21" | 
+           date == "2015-12-22" | date == "2015-12-23" | date == "2015-12-24" | 
+           date == "2016-12-18" | date == "2016-12-19" | date == "2016-12-20" | 
+           date == "2016-12-21" | date == "2016-12-22" | date == "2016-12-23" | 
+           date == "2016-12-24") #December dates
+
+store_1 <- store_1 %>%
+  mutate(isHoliday = ifelse(date %in% store_1_holidays$date, "Yes", "No")) %>%
+  mutate(isChristmasWeek = ifelse(date %in% store_1_december$date, "Yes", "No"))
+
+store_1 <- store_1 %>% #Turning all variables into factors
+  mutate(decimal_date = decimal_date(date)) %>%
+  mutate(isSaturday = ifelse(isSaturday == "Yes", 1, 0)) %>%
+  mutate(isSunday = ifelse(isSunday == "Yes", 1, 0)) %>%
+  mutate(isHoliday = ifelse(isHoliday == "Yes", 1, 0)) %>%
+  mutate(isChristmasWeek = ifelse(isChristmasWeek == "Yes", 1, 0))
+```
+
+Creating the OLS model for store 1
+
+```{r}
+store_1.lm <- lm(transactions ~ decimal_date + isSaturday + isSunday + 
+                   isHoliday + isChristmasWeek, data = store_1)
+summary(store_1.lm)
+
+plot(resid(store_1.lm), type = 'l')
+acf(resid(store_1.lm))
+pacf(resid(store_1.lm))
+```
+
+Model Testing for store 1
+
+```{r}
+store_1.arima <- arima(store_1$transactions, order = c(1, 0, 0), 
+                       seasonal = list(order = c(1, 0, 0), period = 7), 
+                       xreg = cbind(store_1$isSaturday,
+                                    store_1$isSunday,
+                                    store_1$isHoliday,
+                                    store_1$isChristmasWeek,
+                                    store_1$decimal_date))
+
+
+
+AIC(store_1.arima)
+
+acf(resid(store_1.arima))
+pacf(resid(store_1.arima))
+
+#LjungBoxPlot(store_1.arima)
+```
+
+```{r}
+store_1.arima <- arima(store_1$transactions, order = c(1, 0, 2), 
+                       seasonal = list(order = c(1, 0, 2), period = 7), 
+                       xreg = cbind(store_1$isSaturday,
+                                    store_1$isSunday,
+                                    store_1$isHoliday,
+                                    store_1$isChristmasWeek,
+                                    store_1$decimal_date))
+
+
+
+AIC(store_1.arima)
+
+acf(resid(store_1.arima))
+pacf(resid(store_1.arima))
+
+#LjungBoxPlot(store_1.arima)
+```
+
+
+Final ARMA Modeling for store 1, and the ACF and PACF of the model 
+
+```{r}
+store_1.arima <- arima(store_1$transactions, order = c(1, 0, 1), 
+                       seasonal = list(order = c(1, 0, 1), period = 7), 
+                       xreg = cbind(store_1$isSaturday,
+                                    store_1$isSunday,
+                                    store_1$isHoliday,
+                                    store_1$isChristmasWeek,
+                                    store_1$decimal_date))
+
+
+
+AIC(store_1.arima)
+
+acf(resid(store_1.arima))
+pacf(resid(store_1.arima))
+
+#LjungBoxPlot(store_1.arima)
+```
+
+Plotting the periodogram against the fitted spectrum
+
+```{r, include = FALSE}
+fittedSpec <- ARMAspec(model = list(ar = store_1.arima$model$phi, 
+                                    ma = store_1.arima$model$theta,
+                                    sigma2 = store_1.arima$sigma2,
+                                    seasonal = list(sar = store_1.arima$model$Phi,
+                                                    sma = store_1.arima$model$Theta,
+                                                    period = 7)))
+
+s_hat <- spec.pgram(store_1$transactions, detrend = FALSE, demean = TRUE, plot = FALSE)
+
+s_bar <- spec.pgram(store_1$transactions, kernel("modified.daniell", c(4, 4)), 
+                          detrend = FALSE, demean = TRUE, plot = FALSE)
+
+s_bar_CI <- cbind(s_bar$spec*s_bar$df / qchisq(0.975, df = s_bar$df), 
+                        s_bar$spec*s_bar$df / qchisq(0.025, df = s_bar$df)) # confidence interval
+```
+
+```{r, echo = FALSE}
+plot(s_hat$spec*exp(-digamma(1)) ~ s_hat$freq, type='l', col = 'gray',
+     xlab = "frequency", ylab = "spectrum", log = "y", lwd = 2)
+
+lines(s_bar$spec ~ s_bar$freq, col = 'black')
+lines(fittedSpec$spec ~ fittedSpec$freq, col = 'red')
+
+lines(s_bar_CI[,1] ~ s_bar$freq, col = 'black', lty = 'dashed')
+lines(s_bar_CI[,2] ~ s_bar$freq, col = 'black', lty = 'dashed')
+
+legend("bottomright", col = c("gray", "black", "red"), lty = 1,
+       legend = c("raw periodogram", "smoothed periodogram", 
+                  "ARMA(1,1)x(1,1)7 spectrum"))
+```
+
+It's worth noting that the fitted spectrum is incorrect when we knit the appendix; the fitted spectrum that's in the final report is the correct spectrum.
+
+### Store 28
+
+Initial plot of store 28 transactions
+
+```{r}
+store_28 <- transactions %>%
+  filter(store_nbr == 28) %>%
+  select(date, transactions)
+```
+
+Adding factor variables
+
+```{r}
+christmas_week <- store_28 %>%
+  filter(date == "2013-12-18" | date == "2013-12-19" | date == "2013-12-20" | 
+           date == "2013-12-21" | date == "2013-12-22" | date == "2013-12-23" | 
+           date == "2014-12-18" | date == "2014-12-19" | date == "2014-12-20" | 
+           date == "2014-12-21" | date == "2014-12-22" | date == "2014-12-23" |  
+           date == "2015-12-18" | date == "2015-12-19" | date == "2015-12-20" | 
+           date == "2015-12-21" | date == "2015-12-22" | date == "2015-12-23" |  
+           date == "2016-12-18" | date == "2016-12-19" | date == "2016-12-20" | 
+           date == "2016-12-21" | date == "2016-12-22" | date == "2016-12-23")
+
+dec_24 <- store_28 %>%
+  filter(date == "2013-12-24" | date == "2014-12-24" | date == "2015-12-24" | date == "2016-12-24")
+
+dec_31 <- store_28 %>%
+  filter(date == "2013-12-31" | date == "2014-12-31" | date == "2015-12-31" | date == "2016-12-31")
+
+store_28 <- transactions %>%
+  filter(store_nbr == 28) %>%
+  select(date, transactions) %>%
+  mutate(isSaturday = ifelse(wday(date) %in% 7, "Yes", "No")) %>%
+  mutate(isSunday = ifelse(wday(date) %in% 1, "Yes", "No")) %>%
+  mutate(isHoliday = ifelse(date %in% store_1_holidays$date, "Yes", "No")) %>%
+  mutate(isChristmasWeek = ifelse(date %in% christmas_week$date, "Yes", "No")) %>%
+  mutate(isDec24 = ifelse(date %in% dec_24$date, "Yes", "No")) %>%
+  mutate(isDec31 = ifelse(date %in% dec_31$date, "Yes", "No"))
+
+store_28 <- store_28 %>% #Turning the variables into factor variables
+  mutate(decimal_date = decimal_date(date)) %>%
+  mutate(isSaturday = ifelse(isSaturday == "Yes", 1, 0)) %>%
+  mutate(isSunday = ifelse(isSunday == "Yes", 1, 0)) %>%
+  mutate(isHoliday = ifelse(isHoliday == "Yes", 1, 0)) %>%
+  mutate(isChristmasWeek = ifelse(isChristmasWeek == "Yes", 1, 0)) %>%
+  mutate(isDec24 = ifelse(isDec24 == "Yes", 1, 0)) %>%
+  mutate(isDec31 = ifelse(isDec31 == "Yes", 1, 0))
+```
+
+Creating the OLS model for store 28
+
+```{r}
+store_28.lm <- lm(transactions ~ decimal_date + isSaturday + isSunday + 
+                    isHoliday + isChristmasWeek + isDec24 + isDec31, data = store_28)
+summary(store_28.lm)
+
+plot(resid(store_28.lm), type = 'l')
+acf(resid(store_28.lm))
+pacf(resid(store_28.lm))
+```
+
+Modeling testing for store 28
+
+
+```{r}
+store_28.arima <- arima(store_28$transactions, order = c(1, 0, 0), 
+                       seasonal = list(order = c(1, 0, 0), period = 7), 
+                       xreg = cbind(store_28$isSaturday,
+                                    store_28$isSunday,
+                                    store_28$isHoliday,
+                                    store_28$isChristmasWeek,
+                                    store_28$isDec24,
+                                    store_28$isDec31,
+                                    store_28$decimal_date))
+AIC(store_28.arima)
+
+acf(resid(store_28.arima))
+pacf(resid(store_28.arima))
+
+#LjungBoxPlot(store_28.arima)
+```
+
+```{r}
+store_28.arima <- arima(store_28$transactions, order = c(1, 0, 1), 
+                       seasonal = list(order = c(1, 0, 1), period = 7), 
+                       xreg = cbind(store_28$isSaturday,
+                                    store_28$isSunday,
+                                    store_28$isHoliday,
+                                    store_28$isChristmasWeek,
+                                    store_28$isDec24,
+                                    store_28$isDec31,
+                                    store_28$decimal_date))
+AIC(store_28.arima)
+
+acf(resid(store_28.arima))
+pacf(resid(store_28.arima))
+
+#LjungBoxPlot(store_28.arima)
+```
+
+
+Final ARMA Modeling for store 28, and the ACF and PACF of the model 
+
+```{r}
+store_28.arima <- arima(store_28$transactions, order = c(2, 0, 1), 
+                       seasonal = list(order = c(2, 0, 1), period = 7), 
+                       xreg = cbind(store_28$isSaturday,
+                                    store_28$isSunday,
+                                    store_28$isHoliday,
+                                    store_28$isChristmasWeek,
+                                    store_28$isDec24,
+                                    store_28$isDec31,
+                                    store_28$decimal_date))
+AIC(store_28.arima)
+
+acf(resid(store_28.arima))
+pacf(resid(store_28.arima))
+
+#LjungBoxPlot(store_28.arima)
+```
+
+Plotting the periodogram against the fitted spectrum
+
+```{r, include = FALSE}
+fittedSpec <- ARMAspec(model = list(ar = store_28.arima$model$phi, 
+                                    ma = store_28.arima$model$theta,
+                                    sigma2 = store_28.arima$sigma2,
+                                    seasonal = list(sar = store_28.arima$model$Phi,
+                                                    sma = store_28.arima$model$Theta,
+                                                    period = 7)))
+
+s_hat <- spec.pgram(store_28$transactions, detrend = FALSE, demean = TRUE, plot = FALSE)
+
+s_bar <- spec.pgram(store_28$transactions, kernel("modified.daniell", c(4, 4)), 
+                          detrend = FALSE, demean = TRUE, plot = FALSE)
+
+s_bar_CI <- cbind(s_bar$spec*s_bar$df / qchisq(0.975, df = s_bar$df), 
+                        s_bar$spec*s_bar$df / qchisq(0.025, df = s_bar$df)) # confidence interval
+```
+
+```{r, echo = FALSE}
+plot(s_hat$spec*exp(-digamma(1)) ~ s_hat$freq, type='l', col = 'gray',
+     xlab = "frequency", ylab = "spectrum", log = "y", lwd = 2)
+
+lines(s_bar$spec ~ s_bar$freq, col = 'black')
+lines(fittedSpec$spec ~ fittedSpec$freq, col = 'red')
+
+lines(s_bar_CI[,1] ~ s_bar$freq, col = 'black', lty = 'dashed')
+lines(s_bar_CI[,2] ~ s_bar$freq, col = 'black', lty = 'dashed')
+
+legend("bottomright", col = c("gray", "black", "red", "blue"), lty = 1,
+       legend = c("raw periodogram", "smoothed periodogram", 
+                  "ARMA(2,1)x(2,1)7 spectrum"))
+```

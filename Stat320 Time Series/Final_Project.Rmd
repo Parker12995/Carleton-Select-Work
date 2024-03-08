@@ -1,0 +1,174 @@
+---
+title: "Final Project"
+author: "Victor Huang, Parker Johnson, Elijah Jones"
+date: "5/24/2022"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(readr)
+library(ggplot2)
+library(dplyr)
+library(lubridate)
+transactions <- read_csv("transactions.csv")
+```
+
+## Data Description
+
+Our data consists of the total number of daily transactions at 54 Corporación Favoritas grocery stores in Ecuador, recorded by the stores from 2013 to 2017. The dataset includes the date (our predictor variable) and the total number or products purchased in the store on that day (our response variable).
+
+Each of the 54 stores are located in 1 of 22 cities in Ecuador. For our analysis, we have chose to analyze Store 1, which is located in Quito, and Store 28, which is located in Guayaquil. We will be looking at the total number of products sold daily, as well as the total number of products sold by week at these stores.
+
+Our dataset, 'transactions.csv', was found on kaggle.com under the title "Store Sales - Time Series Forecasting". The link is included here: https://www.kaggle.com/competitions/store-sales-time-series-forecasting/overview
+
+## Research Description
+
+Guayaquil and Quito are Ecaudor's largest and second largest cities. We will address the following questions:
+
+Do holidays have an effect on sales? In other words, are sales best explained using a non-seasonal or seasonal time series model?
+
+Can sales of stores in Guayaquil and Quito be explained using the same time series model? How do sales differ for stores in Guayaquil versus Quito?
+
+
+## Initial Graphical Summaries: Stores 1 and 28
+
+Figure 1 shows the number of daily transactions from 2013 to 2017 in Store 1.
+
+
+IMPORTANT DATES: August 10th is Independence Day for Ecuador
+
+```{r, echo=FALSE, warning=FALSE, message=FALSE, fig.width=6, fig.height=4, fig.align='center', fig.show="hold", fig.cap="Daily transactions for store 1"}
+
+#store_1_last5 <- transactions %>%
+#  filter(store_nbr == 1) %>%
+#  select(date, transactions) %>%
+#  slice((n()-4):n())
+
+#store_1_test <- transactions %>%
+#  filter(store_nbr == 1) %>%
+#  select(date, transactions) %>%
+#  slice(1:(n() - 5)) %>%
+#  add_row(date = as.Date("2013-12-25"), transactions = 0) %>%
+#  add_row(date = as.Date("2014-01-01"), transactions = 0) %>%
+#  add_row(date = as.Date("2014-12-25"), transactions = 0) %>%
+#  add_row(date = as.Date("2015-01-01"), transactions = 0) %>%
+#  add_row(date = as.Date("2015-12-25"), transactions = 0) %>%
+#  add_row(date = as.Date("2016-01-01"), transactions = 0) %>%
+#  add_row(date = as.Date("2016-12-25"), transactions = 0) %>%
+#  add_row(date = as.Date("2016-01-02"), transactions = 0) %>%
+#  add_row(date = as.Date("2016-01-03"), transactions = 0) %>%
+#  arrange(date) %>%
+#  mutate(week_num = ceiling((1/7)*row_number(date))) %>%
+#  mutate(day_num = rep(1:7, times = 240))
+
+#store_1_last5 <- store_1_last5 %>%
+#  mutate(week_num = 241) %>%
+#  mutate(day_num = 1:5)
+
+#store_1 <- rbind(store_1_test, store_1_last5) %>%
+#  filter(transactions != 0) %>%
+#  mutate(isWeekend = ifelse(wday(date) %in% c(1, 7), "Yes", "No"))
+
+store_1 <- transactions %>%
+  filter(store_nbr == 1) %>%
+  select(date, transactions) %>%
+  mutate(isWeekend = ifelse(wday(date) %in% c(1, 7), "Yes", "No"))
+
+store_1_holidays1 <- store_1 %>%
+  filter(isWeekend == "No") %>%
+  filter(transactions < 1000) %>%
+  filter(date != "2016-01-04" & date != "2016-11-04" & date != "2016-12-06" & date != "2017-01-02")
+  #mutate(isHoliday = ifelse(date %in% holidays$date, "Yes", "No"))
+#2013: Feb 11 and 12 are Carnival, Mar 29 is Good Friday, May 24 is battle of pinchincha, Aug 10 is Independence (weekend), Oct 11 is Guayaquil Independence, then Nov 1, 4 (not here). Nov 2 weekend. So only 2 not here are Nov 1 and Nov 4 (Day of the dead and Cuenca Indep day)
+#2014: All there
+#2015: All there
+#2016: Jan 4 is there, Nov 4th is there, Dec 6th is there, Dec 26th is there
+#2017: Jan 2 is there
+
+#We should probably remove Jan 4 2016, Nov 4 2016, Dec 6 2016, Jan 2 2017
+
+#Then add Aug 10 2013, Nov 1 2013, Nov 2 2013, Nov 4 2013, May 24 2014, Aug 10 2014, Nov 2 2014, May 24 2015, May 1 2016, Oct 9 2016.
+
+store_1_holidays2 <- store_1 %>%
+  filter(date == "2013-08-10" | date == "2013-11-01" | date == "2013-11-02" | date == "2013-11-04" | date == "2014-05-24" | date == "2014-08-10" | date == "2014-11-02" | date == "2015-05-24" | date == "2016-05-01" | date == "2016-10-09")
+
+store_1_holidays <- rbind(store_1_holidays1, store_1_holidays2) %>%
+  arrange(date)
+
+store_1_december <- store_1 %>%
+  filter(date == "2013-12-18" | date == "2013-12-19" | date == "2013-12-20" | date == "2013-12-21" | date == "2013-12-22" | date == "2013-12-23" | date == "2013-12-24" | date == "2014-12-18" | date == "2014-12-19" | date == "2014-12-20" | date == "2014-12-21" | date == "2014-12-22" | date == "2014-12-23" | date == "2014-12-24" | date == "2015-12-18" | date == "2015-12-19" | date == "2015-12-20" | date == "2015-12-21" | date == "2015-12-22" | date == "2015-12-23" | date == "2015-12-24" | date == "2016-12-18" | date == "2016-12-19" | date == "2016-12-20" | date == "2016-12-21" | date == "2016-12-22" | date == "2016-12-23" | date == "2016-12-24")
+
+store_1 <- store_1 %>%
+  mutate(isHoliday = ifelse(date %in% store_1_holidays$date, "Yes", "No")) %>%
+  mutate(isChristmasWeek = ifelse(date %in% store_1_december$date, "Yes", "No"))
+
+
+
+plot(x = store_1_testing$date, y = store_1_testing$transactions, type = "l", xlab = "Date", 
+     ylab = "Daily Transactions", main = "Transactions for Store 1 in Quito vs. Date")
+
+plot(x = store_1$date, y = store_1$transactions, type = "l", xlab = "Date", 
+     ylab = "Daily Transactions", main = "Transactions for Store 1 in Quito vs. Date")
+```
+
+To make it easier to observe trends in the data, we grouped sales by week. Figure 2 shows the number of weekly transactions from 2013 to 2017 in Store 1. Sales seem to follow a yearly cycle, peaking in late December. The mean and variance of the time series seem to be fairly constant. It appears that a seasonal model may be suitable for these data.
+
+```{r, echo=FALSE, warning=FALSE, message=FALSE, fig.width=6, fig.height=4, fig.align='center', fig.show="hold", fig.cap="Weekly transactions for store 1"}
+store_1_weekly <- store_1 %>%
+  mutate(week_num = ceiling((1/7)*row_number(date))) %>%
+  group_by(week_num) %>%
+  summarize(total_transactions = sum(transactions)) %>%
+  filter(week_num != 240)
+
+plot(x = store_1_weekly$week_num, y = store_1_weekly$total_transactions, type = "l", 
+     xlab = "Week Number Since January 2, 2013", ylab = "Weekly Transactions", 
+     main = "Transactions for Store 1 in Quito vs. Week Number")
+```
+
+Figure 3 shows the number of daily transactions from 2013 to 2017 in Store 28.
+
+```{r, echo=FALSE, warning=FALSE, message=FALSE, fig.width=6, fig.height=4, fig.align='center', fig.show="hold", fig.cap="Daily transactions for store 28"}
+transactions <- read_csv("transactions.csv")
+
+#store_28 <- transactions %>%
+#  filter(store_nbr == 28) %>%
+#  select(date, transactions)
+
+store_28 <- transactions %>%
+  filter(store_nbr == 28) %>%
+  select(date, transactions) %>%
+  mutate(isSaturday = ifelse(wday(date) %in% 7, "Yes", "No")) %>%
+  mutate(isSunday = ifelse(wday(date) %in% 1, "Yes", "No")) %>%
+  mutate(isHoliday = ifelse(date %in% store_1_holidays$date, "Yes", "No")) %>%
+  mutate(isChristmasWeek = ifelse(date %in% store_1_december$date, "Yes", "No"))
+
+
+store_1 <- store_1 %>%
+  mutate(isHoliday = ifelse(date %in% store_1_holidays$date, "Yes", "No")) %>%
+  mutate(isChristmasWeek = ifelse(date %in% store_1_december$date, "Yes", "No"))
+
+
+plot(x = store_28$date, y = store_28$transactions, type = "l", xlab = "Date", 
+     ylab = "Daily Transactions", main = "Date Versus Transactions for Store 28 in Guayaquil")
+```
+
+To make it easier to observe trends in the data, we grouped sales by week. Figure 4 shows the number of weekly transactions from 2013 to 2017 in Store 28. Sales seem to follow a yearly cycle, peaking in late December. However, we see additional spikes scattered at other weeks throughout the year. Additionally, the mean of the series is increasing. We may need to remove the mean trend before further analysis of this series.
+
+```{r, echo=FALSE, warning=FALSE, message=FALSE, fig.width=6, fig.height=4, fig.align='center', fig.show="hold", fig.cap="Weekly transactions for store 28"}
+store_28_weekly <- store_28 %>%
+  mutate(week_num = ceiling((1/7)*row_number(date))) %>%
+  group_by(week_num) %>%
+  summarize(total_transactions = sum(transactions)) %>%
+  filter(week_num != 240)
+
+plot(x = store_28_weekly$week_num, y = store_28_weekly$total_transactions, type = "l", 
+     xlab = "Week Number Since January 2, 2013", ylab = "Weekly Transactions", 
+     main = "Week Number Versus Transactions for Store 28 in Guayaquil")
+```
+
+## Analysis Plans
+
+First, we will remove the mean trends in both time series. Then, we will use the ACF, PACF, and periodogram to fit the best model to each time series. Then, we will compare and contrast the models. We will use the models to explain trends in sales, and conduct future research to provide rationale for differences in the trends.
+
+

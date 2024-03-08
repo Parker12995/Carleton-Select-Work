@@ -1,0 +1,95 @@
+---
+title: "Final Project EDA"
+author: "Victor Huang, Parker Johnson, Elijah Jones"
+date: "5/24/2022"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(readr)
+library(ggplot2)
+library(dplyr)
+```
+
+## Data Description and Research Questions
+
+Write
+
+
+## Initial Graphical Summaries
+
+
+```{r, echo=FALSE, warning=FALSE, message=FALSE, fig.width=6, fig.height=4, fig.align='center', fig.show="hold", fig.cap="Daily transactions for store 1"}
+transactions <- read_csv("transactions.csv")
+
+store_1 <- transactions %>%
+  filter(store_nbr == 1) %>%
+  select(date, transactions)
+plot(x = store_1$date, y = store_1$transactions, type = "l", xlab = "Date", 
+     ylab = "Daily Transactions", main = "Date Versus Transactions for Store 1 in Quito")
+```
+
+
+
+```{r, echo=FALSE, warning=FALSE, message=FALSE, fig.width=6, fig.height=4, fig.align='center', fig.show="hold", fig.cap="Weekly transactions for store 1"}
+store_1_weekly <- store_1 %>%
+  mutate(week_num = ceiling((1/7)*row_number(date))) %>%
+  group_by(week_num) %>%
+  summarize(total_transactions = sum(transactions)) %>%
+  filter(week_num != 240)
+
+plot(x = store_1_weekly$week_num, y = store_1_weekly$total_transactions, type = "l", 
+     xlab = "Week Number Since January 2, 2013", ylab = "Weekly Transactions", 
+     main = "Week Number Versus Transactions for Store 1 in Quito")
+```
+
+```{r, echo=FALSE, warning=FALSE, message=FALSE, fig.width=6, fig.height=4, fig.align='center', fig.show="hold", fig.cap="Weekly transactions for store 1"}
+store_1_weekly_ts <- ts(store_1_weekly)
+spec.pgram(store_1_weekly_ts)
+
+store_1_weekly_vector <- store_1_weekly$total_transactions
+
+acf(store_1_weekly_vector)
+pacf(store_1_weekly_vector)
+```
+
+
+Store 28
+
+```{r, echo=FALSE, warning=FALSE, message=FALSE, fig.width=6, fig.height=4, fig.align='center', fig.show="hold", fig.cap="Daily transactions for store 21"}
+transactions <- read_csv("transactions.csv")
+
+store_28 <- transactions %>%
+  filter(store_nbr == 28) %>%
+  select(date, transactions)
+plot(x = store_28$date, y = store_28$transactions, type = "l", xlab = "Date", 
+     ylab = "Daily Transactions", main = "Date Versus Transactions for Store 28 in Guayaquil")
+```
+
+
+```{r, echo=FALSE, warning=FALSE, message=FALSE, fig.width=6, fig.height=4, fig.align='center', fig.show="hold", fig.cap="Weekly transactions for store 28"}
+store_28_weekly <- store_28 %>%
+  mutate(week_num = ceiling((1/7)*row_number(date))) %>%
+  group_by(week_num) %>%
+  summarize(total_transactions = sum(transactions)) %>%
+  filter(week_num != 240)
+
+plot(x = store_28_weekly$week_num, y = store_28_weekly$total_transactions, type = "l", 
+     xlab = "Week Number Since January 2, 2013", ylab = "Weekly Transactions", 
+     main = "Week Number Versus Transactions for Store 28 in Guayaquil")
+
+store_28_weekly_vector <- store_28_weekly$total_transactions
+
+acf(store_28_weekly_vector)
+pacf(store_28_weekly_vector)
+```
+
+
+
+## Analysis Plans
+
+Write
+
+
+
