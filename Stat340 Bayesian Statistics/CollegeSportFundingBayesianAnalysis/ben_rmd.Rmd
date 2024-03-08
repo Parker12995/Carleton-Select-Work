@@ -1,0 +1,215 @@
+---
+title: "ben_rmd"
+author: "Ben Aoki-Sherwood"
+date: "2022-11-16"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(runjags)
+library(tidyverse)
+library(tidybayes)
+library(bayesplot)
+library(coda)
+library(ProbBayes)
+set.seed(987654321)
+```
+
+```{r}
+sports <- readr::read_csv('https://raw.githubusercontent.com/rfordatascience/tidytuesday/master/data/2022/2022-03-29/sports.csv')
+```
+
+```{r}
+# tidy and subset the data to only include a single year (2019), focus on sports
+# teams in the NCAA that involve both men and women, and create the predictors
+# and indicators necessary for our multiple regression
+sports2019 <- sports %>% 
+  filter(
+    year == 2019 & 
+    str_detect(classification_name, "NCAA") == TRUE & 
+    sum_partic_men > 0 & sum_partic_women > 0) %>% 
+  mutate(division = str_extract(classification_name, "NCAA Division I{1,3}"), 
+         gender_ratio = sum_partic_men / sum_partic_women,
+         division1 = as.numeric(division == "NCAA Division I"),
+         division2 = as.numeric(division == "NCAA Division II"),
+         school_code = as.numeric(as_factor(institution_name))) %>%
+  drop_na(total_rev_menwomen)
+```
+
+```{r}
+# assess correlation between division and gender ratio
+ggplot(data = sports2019) + geom_boxplot(aes(x = gender_ratio, y = division))
+# assess linearity between division and log revenue: we should see a multiplicative change in
+# revenue between divisions if this relationship is linear, and indeed we do based on the 
+# summary stats calculated in this chunk.
+ggplot(data = sports2019) + 
+  geom_histogram(aes(x = log(total_rev_menwomen), fill = division))
+sports2019 %>%
+  group_by(division) %>%
+  summarize(med_ratio = median(gender_ratio),
+            med_rev = median(total_rev_menwomen, na.rm = TRUE))
+```
+
+```{r}
+model_string <-"model {
+## sampling
+for (i in 1:N){
+   y[i] ~ dnorm(mu[i], resid_precision)
+   mu[i] <- beta0 + 
+            beta1 * division1[i] + 
+            beta2 * division2[i] + 
+            beta3 * gender_ratio[i] + 
+            u[school[i]]
+}
+## random effects
+for (j in 1:J){
+   u[j] ~ dnorm(0, school_precision)
+}
+## fixed effects
+beta0 ~ dnorm(0, 0.01)
+beta1 ~ dnorm(0, 0.01)
+beta2 ~ dnorm(0, 0.01)
+beta3 ~ dnorm(0, 0.01)
+## variance components
+resid_precision ~ dunif(0, 100)
+resid_variance <- sqrt(pow(resid_precision, -1))
+school_precision ~ dunif(0, 100)
+school_variance <- sqrt(pow(school_precision, -1))
+## prediction
+for (i in 1:N) {
+  ypred[i] ~ dnorm(mu[i], resid_precision)
+}
+}
+"
+
+the_data <- list(y = log(sports2019$total_rev_menwomen), 
+                 school = sports2019$school_code, 
+                 division1 = sports2019$division1,
+                 division2 = sports2019$division2,
+                 gender_ratio = sports2019$gender_ratio,
+                 N = nrow(sports2019), 
+                 J = length(unique(sports2019$institution_name))
+)
+
+initsfunction <- function(chain){
+  .RNG.seed <- c(123809474, 234098, 82357)[chain]
+  .RNG.name <- c("base::Super-Duper",
+                 "base::Wichmann-Hill",
+                 "base::Mersenne-Twister")[chain]
+  return(list(.RNG.seed=.RNG.seed,
+              .RNG.name=.RNG.name))
+}
+```
+
+``` {r}
+posterior <- run.jags(
+  model_string,
+  n.chains = 3,
+  data = the_data,
+  monitor = c("beta0", "beta1", "beta2", "beta3", "u", "resid_variance", "school_variance"),
+  adapt = 1000,
+  burnin = 5000,
+  sample = 5000,
+  inits = initsfunction,
+  silent.jags = TRUE,
+  thin = 10
+)
+post_pred <- run.jags(
+  model_string,
+  n.chains = 1,
+  data = the_data,
+  monitor = c("ypred"),
+  adapt = 1000,
+  burnin = 5000,
+  sample = 500,
+  inits = initsfunction,
+  silent.jags = TRUE,
+  thin = 10
+)
+```
+
+MCMC diagnostics on convergence and sampler efficiency:
+
+```{r}
+mcmc_trace(posterior$mcmc, pars = c("beta0", "beta1", "beta2", "beta3", "resid_variance", "school_variance"))
+```
+
+```{r}
+mcmc_acf(posterior$mcmc, pars = c("beta0", "beta1", "beta2", "beta3", "resid_variance", "school_variance"))
+```
+
+```{r}
+# check that all effective sample sizes are > 2000:
+effectiveSize(posterior$mcmc)
+effectiveSize(posterior$mcmc[[1]][,"resid_variance"])
+effectiveSize(posterior$mcmc[[1]][,"school_variance"])
+
+# convergence diagnostics indicate convergence for all non-random effect parameters!
+# random effect u_j's also converged, but are not displayed because there are so many
+gelman.diag(posterior$mcmc)$psrf[c("beta0", "beta1", "beta2", "beta3", "resid_variance", "school_variance"),]
+geweke <- geweke.diag(posterior$mcmc)
+geweke[[1]]$z[c("beta0", "beta1", "beta2", "beta3", "resid_variance", "school_variance")]
+```
+
+Posterior predictive check:
+
+```{r}
+ppc_dens_overlay(y = log(sports2019$total_rev_menwomen), yrep = post_pred$mcmc[[1]])
+ppc_stat(y = log(sports2019$total_rev_menwomen), yrep = post_pred$mcmc[[1]], stat = median)
+ppc_stat(y = log(sports2019$total_rev_menwomen), yrep = post_pred$mcmc[[1]], stat = sd)
+```
+
+Although the density overlay shows that our model produces less tightly peaked data than the actual dataset, we can see from the two ppc_stat checks that the sample median and standard deviation fall could easily have been produced from the distribution of possible medians and standard deviations generated by our model.
+
+Analysis: slope parameters
+
+```{r}
+post_df <- tidy_draws(posterior) %>% 
+  mutate(across(everything(), .fns = exp)) # exponentiate slopes with log response to get
+pis <- post_df %>%                         # multiplicative factors for unlogged response
+  select(beta0, beta1, beta2, beta3) %>%
+  summarize(across(everything(), .fns = quantile, probs = c(0.025, 0.975)))
+pis %>% knitr::kable()
+```
+
+Analysis: random school effects
+
+```{r}
+# create a dataframe with each school in our data set and that school's random effect,
+# using the median of the posterior for u_j as a point estimate and exponentiating
+# to get a multiplicative revenue factor for each school
+school_code_map <- sports2019 %>% select(c(institution_name, school_code))
+med_us <- post_df %>%
+  select(contains("u")) %>%
+  summarize(across(everything(), .fns = median)) %>%
+  rename_with(function (x) str_replace(x, "u\\[([0-9]+)\\]", "\\1")) %>%
+  pivot_longer(cols = everything(), names_to = "school_code", values_to = "random_effect") %>%
+  mutate(school_code = as.numeric(school_code)) %>% 
+  left_join(school_code_map, join_by = school_code) %>%
+  unique() %>% 
+  mutate(random_effect = exp(random_effect))
+``` 
+
+```{r}
+# 
+ggplot(data=med_us) + geom_histogram(aes(x = random_effect))
+top3_schools = med_us %>% slice_max(random_effect, n = 3)
+bottom3_schools = med_us %>% slice_min(random_effect, n = 3)
+extremes = full_join(top3_schools, bottom3_schools)
+```
+
+```{r}
+library(ggrepel)
+ggplot(data=med_us, aes(x = random_effect, y = 0, label = institution_name)) +
+  geom_point() +
+  geom_label_repel(data = extremes,
+                   box.padding   = 0.35, 
+                   point.padding = 1,
+                   segment.color = 'grey50',
+                   max.overlaps = 100) +
+  theme(axis.text.y = element_blank(), axis.ticks.y = element_blank(), axis.title.y = element_blank()) +
+  labs(x = "School Random Effect Values",
+       title = "Top 3 and Bottom 3 Schools by Random Effect Value")
+```
+

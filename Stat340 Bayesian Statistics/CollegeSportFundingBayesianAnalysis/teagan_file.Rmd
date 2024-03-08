@@ -1,0 +1,161 @@
+---
+title: "teagan_file"
+author: "Teagan Johnson"
+date: "2022-11-16"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(ggplot2)
+library(dplyr)
+library(ProbBayes)
+library(runjags)
+library(coda)
+library(bayesplot)
+library(tidybayes)
+library(stringr)
+library(rjags)
+```
+
+```{r}
+tuesdata <- tidytuesdayR::tt_load('2022-03-29')
+sports <- tuesdata$sports
+```
+
+```{r}
+sports %>% 
+  summarize(min = minimum())
+```
+
+
+```{r}
+testing <- sports %>%
+  filter(str_detect(classification_name, "NCAA") == TRUE) %>%
+  mutate(Division = str_extract(classification_name, "Division I{1,3}")) %>%
+  filter(year == 2019) %>%
+  filter(is.na(rev_men) == FALSE & is.na(rev_women) == FALSE) %>%
+  mutate(ratio_partic_men = partic_men / (partic_men + partic_women)) %>%
+  select(institution_name, city_txt, state_cd, Division, ef_total_count, 
+         partic_men, partic_women, ratio_partic_men, rev_men, rev_women, 
+         total_rev_menwomen, sports) %>%
+  mutate(div1_indicator = as.numeric(Division == "Division I"), div2_indicator = as.numeric(Division == "Division II"))
+```
+
+```{r}
+View(testing %>%
+  slice_max(total_rev_menwomen, n=3))
+
+View(testing %>%
+  slice_min(total_rev_menwomen, n=3))
+```
+
+```{r}
+View(testing %>%
+  filter(Division == "Division III") %>%
+  slice_max(total_rev_menwomen, n=3))
+
+View(testing %>%
+  group_by(Division) %>%
+  mutate(avg_rev = mean(total_rev_menwomen)) %>%
+  slice_max(total_rev_menwomen, n=5) %>%
+  summarize(norm_diff = (total_rev_menwomen - avg_rev) / avg_rev, institution_name, avg_rev) %>%
+  ungroup() %>%
+  slice_max(norm_diff, n=10))
+```
+
+```{r}
+View(testing %>%
+  group_by(Division) %>%
+  mutate(avg_rev = mean(total_rev_menwomen)) %>%
+  slice_min(total_rev_menwomen, n=5) %>%
+  summarize(norm_diff = (avg_rev - total_rev_menwomen) / avg_rev, institution_name, avg_rev, total_rev_menwomen) %>%
+  ungroup() %>%
+  slice_max(norm_diff, n=7))
+```
+
+
+```{r}
+testing %>%
+  filter(Division == "Division III") %>%
+  unique()
+```
+
+
+
+```{r}
+df <- data.frame(table(testing$sports))
+ggplot(df) + geom_bar(aes(x=Var1, y=Freq), stat="identity")
+```
+
+```{r}
+length(unique(testing$institution_name))
+```
+```{r}
+sports %>%
+  filter(year==2017) %>%
+  filter(!sports %in% c("Football")) %>%
+  group_by(institution_name) %>%
+  summarize(total_rev = total_rev_menwomen) %>%
+  ungroup() %>%
+  slice_max(order_by=total_rev, n=10)
+```
+
+```{r}
+#This is a Hierarchical linear regression, so not multiple regression
+hlm_string <-"model {
+## sampling
+for (i in 1:N){
+   y[i] ~ dnorm(mu[i], sigma)
+   mu[i] <- beta0 + beta1 * div1_indicator[i] + beta2 * div2_indicator[i] + beta3 * ratio_partic_men[i] + u[school[i]]
+}
+## random effects
+for (j in 1:J){
+   u[j] ~ dnorm(0, tau)
+}
+## fixed effects
+beta0 ~ dnorm(0, 1000000)
+beta1 ~ dnorm(0, 1000000)
+beta2 ~ dnorm(0, 1000000)
+beta3 ~ dnorm(0, 100)
+## variance components
+sigma ~ dunif(0, 100)
+sigma_variance <- sqrt(pow(sigma, -1))
+tau ~ dunif(0, 100)
+tau_variance <- sqrt(pow(tau, -1))
+}
+"
+
+the_data <- list(y = testing$total_rev_menwomen, 
+                 school = testing$institution_name, 
+                 div1_indicator = testing$div1_indicator,
+                 div2_indicator = testing$div2_indicator,
+                 ratio_partic_men = testing$ratio_partic_men,
+                 N = nrow(testing), 
+                 J = length(unique(testing$institution_name))
+)
+
+initsfunction <- function(chain){
+  .RNG.seed <- c(1,2)[chain]
+  .RNG.name <- c("base::Super-Duper",
+                 "base::Wichmann-Hill")[chain]
+  return(list(.RNG.seed=.RNG.seed,
+              .RNG.name=.RNG.name))
+}
+
+posterior <- run.jags(
+  hlm_string,
+  n.chains = 1,
+  data = the_data,
+  monitor = c("beta0", "beta1", "beta2", "beta3", "u", "sigma_variance", "tau_variance"),
+  adapt = 1000,
+  burnin = 5000,
+  sample = 5000,
+  inits = initsfunction,
+  silent.jags = TRUE
+)
+```
+
+
+
+

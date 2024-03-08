@@ -1,0 +1,390 @@
+---
+title: "Case Study 2"
+author: "Parker Johnson"
+date: "11/8/2022"
+output: pdf_document
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(ggplot2)
+library(dplyr)
+library(ProbBayes)
+library(runjags)
+library(coda)
+library(bayesplot)
+```
+
+## Introduction
+
+Radon levels have been a subject of concern for homeowners in Minnesota, as too high of radon levels can become dangerous and even lead to lung cancer. Therefore, having an understanding of radon levels in Minnesota and how they might differ within each county is important for everyone's well-being. In this study, we estimate county-level average radon concentrations, as well as the state-wide average radon concentration. From this, we then identify counties with unusually high radon concentrations.
+
+
+## Methodology
+
+For this estimation, a hierarchical model was used. This model seemed appropriate for the study, because a hierarchical model can acknowledge the grouping structure of the counties while still addressing the broader population of Minnesota at the same time.
+
+I will assume that the log radon levels are normally distributed, since log levels can be both positive and negative. In this situation, $Y_{ij}$ represents the i-th radon level for county j. This hierarchical model will need $\mu_j$, which is the mean of the log radon levels for county j. I will assume a common standard deviation across counties, since the spread of log radon values across the state doesn't seem likely to differ much across counties, and this allows for a simpler implementation. I will also work with precision, which is $\frac{1}{\sigma^2}$, within this model to allow for easier implementation before transferring this back to standard deviations. Precisions often have gamma priors; therefore, the hierarchical model will have the following elements:
+$$
+\text{Sampling model: For j = 1, ... 85 and i = 1, ..., }n_j: Y_{ij} | \mu_j, \sigma \overset{\mathrm{iid}}{\sim} Normal(\mu_j, \sigma)
+$$
+$$
+\text{Prior for }\mu_j\text{, Stage 1: j = 1, ..., 85: } \mu_j | \mu, \tau \sim Normal(\mu, \tau)
+$$
+$$
+\text{Prior for }\mu_j\text{, Stage 2: } \mu, \tau \sim \pi(\mu, \tau)
+$$
+$$
+1/\sigma^2 | a_\sigma, b_\sigma \sim Gamma(a_\sigma, b_\sigma)
+$$
+Where $\mu$ and $\tau$ are random hyperparameters and $\pi(\mu, \tau)$ denotes an arbitrary joint hyperprior distribution.
+
+To construct a prior on these hyperparameters, a typical approach for Normal models is to assign two independent prior distributions; a Normal distribution for the mean $\mu$ and a Gamma distribution for the precision $1/\tau^2$. Therefore, we now have the following prior for $\mu_j$ instead of $\pi(\mu, \tau)$:
+$$
+\mu | \mu_0, \gamma_0 \sim Normal(\mu_0, \gamma_0)
+$$
+$$
+1/\tau^2 | a, b \sim Normal(a_\tau, b_\tau)
+$$
+We now need to choose values for $a_\sigma, b_\sigma, \mu_0, \gamma_0, a_\tau,$ and $b_\tau$. According to https://www.epa.gov/radon/what-epas-action-level-radon-and-what-does-it-mean#:~:text=The%20average%20indoor%20radon%20concentration,
+related%20lung%20cancers%20a%20year, the average indoor radon concentration for homes in the US is about 1.3 pCi/L. On the log scale, this value is approximately 0.26, so this will be the value for $\mu_0$. Since I don't know how variable this value is, I will choose $\gamma_0 = 1$ to keep a fair amount of variability. Weakly informative priors are sensible to choose for $\tau$ and $\sigma$, so I will choose $a_\sigma = 1, b_\sigma = 1, a_\tau = 1,$ and $b_\tau = 1$. Therefore, the complete hierarchical model is as follows:
+
+Sampling model: For j = 1, ... 85 and i = 1, ..., $n_j:$
+$$
+Y_{ij} | \mu_j, \sigma_j \overset{\mathrm{iid}}{\sim} Normal(\mu_j, \sigma_j)
+$$
+Prior for $\mu_j$, Stage 1: j = 1, ..., 85:
+$$
+\mu_j | \mu, \tau \sim Normal(\mu, \tau)
+$$
+Prior for $\mu_j$, Stage 2: the hyperpriors:
+$$
+\mu \sim Normal(0.26, 1)
+$$
+$$
+1/\tau^2 \sim Gamma(1, 1)
+$$
+Prior for $\sigma$:
+$$
+1/\sigma^2 \sim Gamma(1, 1)
+$$
+With the full model, JAGS can now be used to estimate the posterior distribution in order to estimate county-level and state-wide radon concentrations. The counties with unusually high radon concentrations were found by identifying the top 3 counties for their mean radon values, and by also identifying the top 3 counties for the 97.5th quantile for their radon values. The 97.5th quantile counties were identified on top of the mean radon values because this means that it's still possible for the mean log radon value to be this high in these given counties, so the uncertainty in these counties for a high mean value means that a threat for high radon values could still be present.
+
+
+## Results
+  The posterior mean of the log radon level in each county from JAGS can be seen in Figure 1. From these posterior means, the largest estimated mean was in Blue Earth County, with a mean of 1.777 log pCi/L (which is equivalent to 5.909 pCi/L). The smallest estimated mean was in Lake County, with a mean of 0.643 log pCi/L (which is equivalent to 1.903 pCi/L).
+  
+  The posterior mean of the log radon level across every county is approximately 1.317 log pCi/L (which is equivalent to 3.732 pCi/L), with a standard deviation of approximately 0.0557 log pCi/L. Therefore, there is a 95% chance that the state-wide average radon level is between 3.354 and 4.163 pCi/L.
+  
+  The counties with the 3 highest mean radon values were Blue Earth, Lac Qui Parle, and Freeborn County, with respective means of 1.777 log pCi/L (or 5.909 pCi/L), 1.741 log pCi/L (or 5.703 pCi/L), and 1.740 log pCi/L (or 5.697 pCi/L). The counties with the 3 highest radon values for their 97.5th quantiles were Lac Qui Parle, Watonwan, and Nicollet, with respective quantile values of 2.416 log pCi/L (or 11.21 pCi/L), 2.317 log pCi/L (or 10.14 pCi/L), and 2.291 log pCi/L (or 0.888 pCi/L). It's worth noting that these 3 counties all had means greater than 1.70 log pCi/L as well.
+  
+```{r, echo=FALSE, warning=FALSE, message=FALSE, include = FALSE}
+radon <- read.csv("https://aloy.rbind.io/data/radon.csv")
+
+modelString <-"
+model {
+## sampling
+for (i in 1:N){
+   y[i] ~ dnorm(mu_j[county_num[i]], invsigma2)
+}
+## priors
+for (j in 1:J){
+   mu_j[j] ~ dnorm(mu, invtau2)
+}
+invsigma2 ~ dgamma(a_s, b_s)
+sigma <- sqrt(pow(invsigma2, -1))
+## hyperpriors
+mu ~ dnorm(mu0, g0)
+invtau2 ~ dgamma(a_t, b_t)
+tau <- sqrt(pow(invtau2, -1))
+}
+"
+
+#Defining the data
+y <- radon$log.radon      
+county_num <- radon$county      
+N <- length(y)  
+J <- length(unique(county_num)) #The 85 counties
+the_data <- list("y" = y, "county_num" = county_num, 
+                 "N" = N, "J" = J,
+                 "mu0" = 0.26, "g0" = 1,   #Prior values
+                 "a_t" = 1, "b_t" = 1,
+                 "a_s" = 1, "b_s" = 1)
+
+#Function for making the data reproducible
+initsfunction <- function(chain){
+  .RNG.seed <- c(1,2)[chain]
+  .RNG.name <- c("base::Super-Duper",
+                 "base::Wichmann-Hill")[chain]
+  return(list(.RNG.seed=.RNG.seed,
+              .RNG.name=.RNG.name))
+}
+
+#Matrix of simulated draws
+posterior <- run.jags(modelString,
+                      n.chains = 1,
+                      data = the_data,
+                      monitor = c("mu", "tau", "mu_j", "sigma"),
+                      adapt = 1000,
+                      burnin = 5000,
+                      sample = 5000, 
+                      inits = initsfunction,
+                      silent.jags = TRUE)
+
+df_summary <- data.frame(unclass(summary(posterior$mcmc))) #Data frame of summary
+df_summary2 <- df_summary[-c(1, 2, 88), ] %>% #Data frame of just counties
+  select(-c(start, end, thin, nchain)) #Removing unnecessary columns
+
+df_data <- radon %>%
+  group_by(county) %>%
+  mutate(std = sd(log.radon)) %>%
+  summarize(county.name = unique(county.name), Mean = mean(log.radon), 
+            SD = mean(std))
+county_names <- df_data %>%
+  select(county.name)
+
+#Adding county names to summary data frame and removing more columns
+county_summary <- df_summary2 %>%
+  mutate(county = county_names$county.name) %>%
+  select(-c(statistics.Naive.SE, statistics.Time.series.SE))
+
+#Reordering and renaming the data frame
+county_summary <- county_summary[, c(8, 1, 2, 3, 4, 5, 6, 7)] %>%
+  rename(Mean = statistics.Mean, SD = statistics.SD, 
+         `2.5th quantile` = quantiles.2.5., `25th quantile` = quantiles.25., 
+         `50th quantile` = quantiles.50., `75th quantile` = quantiles.75., 
+         `97.5th quantile` = quantiles.97.5.)
+
+#Scatterplot of mean log radon values in each county
+ggplot(data = county_summary, aes(x = 1:85, y = Mean)) + 
+  geom_point(color = "blue") + 
+  labs(x = "Counties", y = "Mean Log Radon Value", 
+       title = "Mean Log Radon Values in each County") + 
+  theme(plot.title = element_text(hjust = 0.5))
+```
+
+```{r, echo=FALSE, warning=FALSE, message=FALSE, fig.width=6, fig.height=4, fig.align='center', fig.cap="Scatterplot of mean log radon values in each county."}
+#Scatterplot of mean log radon values in each county
+ggplot(data = county_summary, aes(x = 1:85, y = Mean)) + 
+  geom_point(color = "blue") + 
+  labs(x = "Counties", y = "Mean Log Radon Value", 
+       title = "Mean Log Radon Values in each County") + 
+  theme(plot.title = element_text(hjust = 0.5))
+```
+
+
+## Discussion
+  The state-wide mean log radon concentration is approximately 1.317 log pCi/L (which is equivalent to 3.732 pCi/L), and a table of the average mean log radon concentrations in each county can be seen after the discussion section. From these results, we estimate that the counties with unusually high radon values include Blue Earth, Lac Qui Parle, Freeborn, Watonwan, and Nicollet.
+
+  According to https://www.consumerreports.org/radon/is-it-safe-to-buy-a-home-with-an-elevated-radon-level/, levels of 4 pCi/L, or 1.386 log pCi/L, or higher are considered hazardous. However, radon levels below this level can still pose a threat to the health of people living in that home. Since the state-wide mean radon concentration is fairly close to this level, efforts should be taken across the state as a whole to reduce radon levels in homes for the general health of Minnesotans. People living in the counties of Blue Earth, Lac Qui Parle, Freeborn, Watonwan, and Nicollet should be particularly cautious about radon gas, and should make sure that their home's radon levels are not hazardous.
+
+  One drawback to this design is the possibility for inaccuracies to arise when justifying the prior distribution and model. While a weakly informative prior does not have a large impact on the posterior distribution, it does sway it slightly, so an incorrect prior distribution will result in a sightly inaccurate posterior distribution and interpretations. Since the country-wide radon mean level might differ heavily from Minnesota's mean level, perhaps more research could have been conducted to find a more accurate prior distribution for Minnesota.
+  
+  Another drawback to this design is that there isn't a whole lot of observed data for many of the counties. Mahnomen, Murray, and Wilkin only had 1 observed radon level, with Murray and Wilkin's value being very high. However, with only 1 observation, a good estimation of the mean radon level in those counties can't be obtained, so it's hard to know whether the radon levels in these counties is hazardous or not. Additionally, many other counties had less than 10 observations, so these lack of observations adds uncertainty to the posterior means that are obtained and the strength of the county-wide means are weakened. Therefore, if possible, redoing this study with more observations across each county would be beneficial to truly understanding radon levels within each county and across Minnesota.
+
+
+```{r, echo=FALSE}
+knitr::kable(county_summary, digits = 3, caption = 
+          "Table of mean log radon values in each county and their quantiles.")
+```
+
+
+## Technical Appendix
+
+I first loaded the data set and plotted the log radon values to understand how it was distributed. This further justified my choice of choosing a normal model for the log radon values, as the plot below indicates that the log radon values are normally distributed.
+
+```{r}
+radon <- read.csv("https://aloy.rbind.io/data/radon.csv")
+
+#Further justification for choosing a normal model, since values look normally
+#distributed.
+ggplot(data = radon, aes(x = log.radon)) + 
+  geom_histogram(binwidth = 0.1) + 
+  labs(x = "Log Radon Value", title = "Log Radon Values for Observed Data") + 
+  theme(plot.title = element_text(hjust = 0.5))
+  
+
+#Cleaner table of observed data for each county. Will use this for the counties
+#later.
+df_data <- radon %>%
+  group_by(county) %>%
+  mutate(std = sd(log.radon)) %>%
+  summarize(county.name = unique(county.name), Mean = mean(log.radon), 
+            SD = mean(std))
+```
+
+Specifying the prior distributions within the model, I implemented the model in JAGS based on the hierarchical normal sampling example found in Probability and Bayesian Modeling (Albert and Hu, 2020).
+
+```{r}
+modelString <-"
+model {
+## sampling
+for (i in 1:N){
+   y[i] ~ dnorm(mu_j[county_num[i]], invsigma2)
+}
+## priors
+for (j in 1:J){
+   mu_j[j] ~ dnorm(mu, invtau2)
+}
+invsigma2 ~ dgamma(a_s, b_s)
+sigma <- sqrt(pow(invsigma2, -1))
+## hyperpriors
+mu ~ dnorm(mu0, g0)
+invtau2 ~ dgamma(a_t, b_t)
+tau <- sqrt(pow(invtau2, -1))
+}
+"
+
+#Defining the data
+y <- radon$log.radon      
+county_num <- radon$county      
+N <- length(y)  
+J <- length(unique(county_num)) #The 85 counties
+the_data <- list("y" = y, "county_num" = county_num, 
+                 "N" = N, "J" = J,
+                 "mu0" = 0.26, "g0" = 1,   #Prior values
+                 "a_t" = 1, "b_t" = 1,
+                 "a_s" = 1, "b_s" = 1)
+
+#Function for making the data reproducible
+initsfunction <- function(chain){
+  .RNG.seed <- c(1,2)[chain]
+  .RNG.name <- c("base::Super-Duper",
+                 "base::Wichmann-Hill")[chain]
+  return(list(.RNG.seed=.RNG.seed,
+              .RNG.name=.RNG.name))
+}
+
+#Matrix of simulated draws
+posterior <- run.jags(modelString,
+                      n.chains = 1,
+                      data = the_data,
+                      monitor = c("mu", "tau", "mu_j", "sigma"),
+                      adapt = 1000,
+                      burnin = 5000,
+                      sample = 5000, 
+                      inits = initsfunction,
+                      silent.jags = TRUE)
+```
+
+Diagnostics needed to be conducted to ensure that the JAGS sampler properly converged to a stationary mean. The trace plots indicate that the JAGS sampler converged fairly quickly to white noise, and the ACF plots indicate that there isn't high correlation since it tapers off quickly. The summary statistics are also given below for all of the variables in the model.
+
+(Note: While not all mu_j's were plotted here due to the amount of space this would take up, all trace plots and ACF plots indicated well mixing and convergence.)
+
+```{r}
+plot(posterior, vars = "tau")
+plot(posterior, vars = "mu[1]")
+plot(posterior, vars = "mu[37]")
+plot(posterior, vars = "sigma")
+
+#Trace plot for mu
+ggplot() +
+  geom_line(aes(x = seq_along(posterior$mcmc[[1]][, 1]), y = posterior$mcmc[[1]][, 1])) + 
+  labs(x = "Iteration", y = "Mu", title = "Trace Plot for Mu") + 
+  theme(plot.title = element_text(hjust = 0.5))
+
+#ACF plot for mu
+acf(posterior$mcmc[[1]][, 1], main = "ACF plot for Mu")
+
+#Summary statistics
+summary(posterior$mcmc)
+```
+
+To further confirm that this JAGS model was sufficient for analysis, further diagnostics were run, including the Geweke diagnostic and checking the effective sample size for each variable. Since all Geweke values were less than an absolute value of 3, this indicates that each chain converged, and since all variables had effective sample sizes above 1000, the sampler ran long enough after convergence.
+
+```{r}
+geweke.diag(posterior$mcmc[[1]]) #None above absolute value of 3, so good
+effectiveSize(posterior$mcmc[[1]]) #All above 1000, good
+```
+
+To fully check the adequacy of this model, we need to check how well the data matches the model. This can be done through posterior predictive checking, in which we simulate a number of replicated datasets from the posterior predictive distribution and see how the observed sample compares to the replications. If the observed data resembles the replications, we can say that the observed data is consistent with predicted data from the model.
+
+To check some function that will help us detect possible discrepancies between the observed data and the simulated prediction samples, I used the monimum value as the checking function. The histogram is shown below of the observed minimum in blue versus the minimum of each simulated prediction samples. The observed minimum of our data could plausibly have been generated from this distribution, so the model appears to be adequate for our data.
+
+```{r}
+post_df <- as.data.frame(posterior$mcmc[[1]])
+
+postpred_sim <- function(j){
+  mu_j = rnorm(nrow(post_df), post_df$mu, post_df$tau)      # generate mu_j
+  y_pred = rnorm(nrow(post_df), mu_j, post_df$sigma)
+}
+set.seed(597)
+ypred <- t(sapply(1:5000, postpred_sim)) #Doing this 5000 times
+postpred_min <- apply(ypred, 1, min)
+#Finding the minimum value for each replicated dataset
+
+#Plotting the observed mimimum versus the mimimum from each replicated dataset
+ggplot(data = NULL, aes(x = postpred_min)) + 
+  geom_histogram(binwidth = 0.1) + 
+  geom_vline(xintercept = min(radon$log.radon), color = "blue") + 
+  labs(x = "Minimum Log Radon Value", title = "Posterior Predictive Distribution of 
+       Minimum Log Radon Values") + 
+  theme(plot.title = element_text(hjust = 0.5))
+```
+
+I then made a clean table of the summary statistics for each county.
+
+```{r}
+df_summary <- data.frame(unclass(summary(posterior$mcmc))) #Data frame of summary
+df_summary2 <- df_summary[-c(1, 2, 88), ] %>% #Data frame of just counties
+  select(-c(start, end, thin, nchain)) #Removing unnecessary columns
+
+#Getting column names from data frame made earlier
+county_names <- df_data %>%
+  select(county.name)
+
+#Adding county names to summary data frame and removing more columns
+county_summary <- df_summary2 %>%
+  mutate(county = county_names$county.name) %>%
+  select(-c(statistics.Naive.SE, statistics.Time.series.SE))
+
+#Reordering and renaming the data frame
+county_summary <- county_summary[, c(8, 1, 2, 3, 4, 5, 6, 7)] %>%
+  rename(Mean = statistics.Mean, SD = statistics.SD, 
+         `2.5th quantile` = quantiles.2.5., `25th quantile` = quantiles.25., 
+         `50th quantile` = quantiles.50., `75th quantile` = quantiles.75., 
+         `97.5th quantile` = quantiles.97.5.)
+knitr::kable(county_summary, digits = 3)
+```
+
+This is making the scatterplot of the mean log radon values in each county.
+
+```{r}
+#Scatterplot of mean log radon values in each county
+ggplot(data = county_summary, aes(x = 1:85, y = Mean)) + 
+  geom_point(color = "blue") + 
+  labs(x = "Counties", y = "Mean Log Radon Value", 
+       title = "Mean Log Radon Values in each County") + 
+  theme(plot.title = element_text(hjust = 0.5))
+```
+
+This is finding the counties with the 3 highest mean log radon values, and the counties with the 3 highest 97.5th quantile for log radon values.
+
+```{r}
+#Top 3 by mean value
+county_summary %>%
+  arrange(desc(Mean)) %>%
+  slice(1:3)
+
+#Top 3 by 97.5th quantile
+county_summary %>%
+  arrange(desc(`97.5th quantile`)) %>%
+  slice(1:3)
+```
+
+While this wasn't a key detail for analysis, I looked at between versus within county variability out of curiosity. Since much of the posterior probability of R is located below the value 0.5, this confirms that the variation between each county is smaller than the variation of the radon levels within each county. Since the 97.5th percentile is only 0.277, this means that there is very little evidence for between-county variability.
+
+```{r}
+tau_draws <- as.mcmc(posterior, vars = "tau")
+sigma_draws <- as.mcmc(posterior, vars = "sigma")
+R <- tau_draws ^ 2 / (tau_draws ^ 2 + sigma_draws ^ 2)
+summary(R)
+plot(density(R), labs(main = "Density Plot of R"))
+```
+
+
+
+
+

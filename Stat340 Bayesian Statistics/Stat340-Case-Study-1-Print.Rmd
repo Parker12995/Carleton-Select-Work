@@ -1,0 +1,99 @@
+---
+title: "Case Study 1"
+author: "Parker Johnson"
+date: "10/23/2022"
+output: pdf_document
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(ggplot2)
+library(dplyr)
+library(ProbBayes)
+```
+
+## Introduction
+
+Test scores are measurements that institutions place lots of value on to try and quantify how well a student has learned the material. Therefore, having an understanding of how well students are collectively learning is important for professors to know if they need to shift anything in their teaching. In this study, we estimate the true mean and standard deviation of test scores in a Stat 120 class and predict a future test score by using the Gibbs sampler in an effort to understand how the class is performing.
+
+
+## Methodology
+  For this estimation, we applied the Two-stage Gibbs sampler. This estimation seemed appropriate for the study, because the Gibbs sampler can efficiently sample from 2D posterior distributions, so we can estimate both the mean and standard deviation that are in this model.
+  
+  Before implementing the Gibbs sampler, we needed to choose the model and prior distributions. Since we are estimating the mean and standard deviation, it follows that our model would be a normal distribution with mean $\mu$ and standard deviation $\sigma$. It made sense that $\mu$ would be normally distributed, since test scores likely are distributed symmetrically and could have a decent spread. We will also assume that the mean and standard deviation are independent. The mean for $\mu$, $\mu_0$ was chosen to be 85, because this gives a B average on the test which seems reasonable, and since I am around 95% confident that the mean test score is between 71 and 99, this approximately means that $71 \pm 2\sigma_0 = [71, 99]$. Therefore, the standard deviation for $\mu$, $\sigma_0$, could reasonably be 7. Therefore, the prior distribution for the mean was chosen to be $\mu \sim N(85, 7)$.
+  
+  Since I didn't have any prior knowledge on the standard deviation, a weakly uninformative prior made sense to be chosen. I will work with precision, which is $\phi = \frac{1}{\sigma^2}$, within this model to allow for easier implementation before transferring this back to standard deviations. Since a gamma distribution is commonly used for precisions due to covering all values greater than 0, the weakly uninformative prior distribution for the precision was chosen to be $\phi \sim Gamma(.01, .01)$. Therefore, the full model we are working with is as follows:
+  
+$$
+Y_i | \mu, \phi \overset{\mathrm{iid}}{\sim} N(\mu, \sigma)
+$$
+$$
+\mu \sim N(\mu_0, \sqrt{1/\phi_0})
+$$
+$$
+\phi = \frac{1}{\sigma^2} \sim Gamma(a, b)
+$$
+Where $\mu_0 = 85$, $\phi_0 = \frac{1}{7^2}$, $a = .01$, and $b = .01$. Using this model specification, the posterior distribution is given by the following:
+$$
+\pi(\mu, \phi | y_1, ..., y_n) \propto \pi(\mu)\pi(\phi)*\prod_{i=1}^nf(y_i|\mu, \sigma^2) \propto exp[-\frac{\phi_0}{2}(\mu-\mu_0)^2]*\phi^{a-1}exp[-b\phi]*\prod_{i=1}^n\phi^{1/2}exp[-\frac{\phi}{2}(y_i-\mu)^2]
+$$
+
+With the full model, we can now implement the Gibbs sampler. The process for sampling from the joint distribution of $\mu$ and $\phi$ using the Gibbs sampler is as follows:
+
+1. Choose initial values for $\mu^{(0)}$ and $\phi^{(0)}$.
+2. Simulate $\mu^{(j)}$ from the conditional posterior distribution of $\mu$, which is $\pi(\mu^{(j)} | \phi^{(j)}, y_1, ..., y_n) \propto exp[-\frac{\phi_0 + n\phi^{(j)}}{2}*(\mu - \frac{\mu_0\phi_0 + n\bar{y}\phi^{(j)}}{\phi_0+n\phi^{(j)}})^2]$ in this case.
+3. Given the current simulated value $\mu^{(j)}$, simulate $\phi^{(j+1)}$ from the conditional posterior distribution of $\phi$, which is $\pi(\phi^{(j+1)} | \mu^{(j)}, y_1, ..., y_n) \propto \phi^{(n/2+a)-1}exp[-\phi(\frac{1}{2}\sum_{i=1}^n(y_i-\mu^{(j)})^2+b)]$ in this case.
+4. Repeat 2-3 S times.
+
+With this process, the posterior distribution of $\mu$ and $\phi$ can be estimated, which can in turn be used to estimate the posterior distribution of $\sigma$ and produce a prediction interval for a randomly selected future exam score. The prediction interval was found by calculating the 0.05 and 0.95 quantiles from a simulated normal distribution with the estimated $\mu$ and $\sigma$ from above. I chose to find a 90% prediction interval for the future test score, as this is a commonly used prediction interval and will give us a good sense of what are probable values for the future score.
+
+## Results
+  The results of the simulated draws from the Gibbs sampler can be seen in Figure 1. From these simulated draws, the largest estimated mean was 95.2, and the largest estimated standard deviation was 17.2. The smallest estimated mean was 80.3, and the smallest estimated standard deviation was 6.07.
+  
+  From these draws, the average exam score of these simulated draws is approximately 87.1, with a standard deviation of approximately 8.79. Given the 29 exam scores, there is a 90% chance that a randomly selected future score is between 72.9 and 100 (assuming that students cannot score above 100).
+
+```{r, echo=FALSE, warning=FALSE, message=FALSE, fig.width=6, fig.height=4, fig.align='center', fig.cap="Scatterplot of each pair of simulated draws."}
+scores <- read.csv("http://aloy.rbind.io/data/test_scores.csv")
+
+gibbs_normal <- function(s, phi = 0.002, iter = 1000){
+  ybar <- mean(s$y) #Data
+  n <- length(s$y)
+  mu0 <- s$mu0      #Prior specifications
+  phi0 <- s$phi0
+  a <- s$a
+  b <- s$b
+  x <- matrix(0, iter, 2) #Empty matrix for draws
+  for(k in 1:iter){
+   mun <- (phi0 * mu0 + n * phi * ybar) /
+      (phi0 + n * phi) #Mean for first conditional density
+    sigman <- sqrt(1 / (phi0 + n * phi)) #Std for first conditional density
+    mu <- rnorm(1, mean = mun, sd = sigman) #Draw for mu^i
+    an <- n / 2 + a
+    bn <- sum((s$y - mu) ^ 2) / 2 + b
+    phi <- rgamma(1, shape = an, rate = bn) #Draw for phi^i
+    x[k, ] <- c(mu, phi) #Adding the pair of draws to the matrix
+  }
+  x
+}
+
+#Adding data and priors
+s <- list(y = scores$score, mu0 = 85, phi0 = 1/7^2, a = .01, b = .01)
+set.seed(597)
+out <- data.frame(gibbs_normal(s, iter=5000)) #Making the sampler a data frame
+names(out) <- c("Mu", "Phi")
+
+out_burnout <- out[-c(1:500), ]
+ggplot(out_burnout, aes(x = Mu, y = 1/sqrt(Phi))) + 
+  geom_point(color = "blue", size = 0.5) + 
+  labs(x = "Mu", y = "Sigma", title = "Simulated Means and Standard Deviations") + 
+  theme(plot.title = element_text(hjust = 0.5))
+```
+
+## Discussion
+  We estimate that the average exam score is 87.1, with a standard deviation of 8.79. We also estimate that there's a 90% chance that the exam test score for a randomly selected future Stat 120 student is between 72.9 and 100. This means that the average score on the test was a B+, and a randomly selected student in the future has a 90% chance of scoring at least a 72.9.
+
+  One drawback of using a Gibbs sampler is that it can only approximate the posterior distribution. While the diagnostics (see appendix) indicate that this is a close approximation to the posterior distribution, it isn't exactly equal to the posterior distribution. Therefore, the values found aren't perfectly accurate to the true values, just approximations. If this test were to be conducted again, I would run more iterations of the Gibbs sampler to get as close as possible to the exact distribution as I could.
+  
+  The main drawback to this design is the possibility for inaccuracies to arise when justifying the prior distribution and model. While a weakly informative prior does not have a large impact on the posterior distribution, it does sway it slightly, so an incorrect prior distribution will result in a sightly inaccurate posterior distribution and interpretations. Therefore, perhaps more research could have been conducted to find more confident prior distributions for both $\mu$ and $\phi$; for example, perhaps 7 was too narrow for the standard deviation of $\mu$'s distribution, and it's possible that a gamma distribution was not the correct distribution to choose for $\phi$. More research would need to be done, especially with regards to $\phi$, to find accurate prior distributions.
