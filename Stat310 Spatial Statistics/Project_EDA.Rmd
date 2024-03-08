@@ -1,0 +1,308 @@
+---
+title: "Project_EDA"
+output: pdf_document
+date: "2023-04-13"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(sp)
+library(tigris)
+library(ggmap)
+library(tidycensus)
+library(maditr)
+library(spdep)
+library(spatialreg)
+library(gridExtra)
+library(sf)
+```
+
+## R Markdown
+
+```{r}
+#library(ggmap)
+#library(readr)
+
+TX_wells <- read_csv("US_WellsFacilities2016/TX_OGfacil_2016.csv")
+no_TX_wells <- read_csv("US_WellsFacilities2016/US_OGfacil_2016_noTX.csv")
+#Texas_cancer <- read_csv("incd.csv")
+WV_wells <- no_TX_wells %>%
+  filter(State == "WV")
+unique(no_TX_wells$State)
+
+table(no_TX_wells$State)
+
+
+PaCounties = st_read("PACounty2023_04/PaCounty2023_04.shp") %>% as("Spatial")
+plot(PaCounties)
+
+
+#tracts_tidy <- broom::tidy(cin_tracts)
+#cin_tracts$id <- row.names(cin_tracts) #need to join data
+#tracts_tidy <- left_join(tracts_tidy, cin_tracts@data)
+
+#proj4string(cin_tracts)
+#proj4string(cin_policedist)
+#cin_policedist <- spTransform(cin_policedist, "+proj=longlat +datum=NAD83 +no_defs")
+
+
+PA_map + geom_polygon(data= PA_tracts_tidy, 
+                         aes(x = long, y = lat, group = group), 
+                         col = "red") + 
+  geom_point(PA_wells, mapping = aes(x = Longitude, y = Latitude), size = 0.3) + 
+  labs(x = "Longitude", y = "Latitude", 
+       title = "All Active Oil and Gas PA Drilling Locations (as of 2016)") + 
+  theme(plot.title = element_text(hjust = 0.5))
+```
+
+```{r}
+PA_county_tracts <- counties("PA")
+PA_county_tracts <- as_Spatial(PA_county_tracts)
+
+PA_census <- get_acs(geography = "county",
+                         variables = c("B01003_001E", "B01001_002E",
+                                       "B01001_026E", "B23025_003E", 
+                                       "B23025_004E", "B23025_005E", 
+                                       "B15003_022E", "B15003_017E",
+                                       "B15003_023E", "B19013_001E", 
+                                       "B15003_001E", "B19058_001E", 
+                                       "B19058_002E", "B19058_003E", 
+                                       "B02001_001E", "B02001_002E", 
+                                       "B02001_003E", "B02001_004E", 
+                                       "B02001_005E","B02001_006E", 
+                                       "B02001_007E", "B02001_008E"), year = 2021,
+                         state = "PA",
+                     #county = c("Hennepin County"), 
+                         geometry = F)
+
+code_book_PA <- rbind(c("B01003_001", "total_pop"),
+                   c("B01001_002", "total_male"),
+                   c("B01001_026", "total_female"),
+                   c("B23025_003", "total_labor_force"), 
+                   c("B23025_004", "total_employed"), 
+                   c("B23025_005", "total_unemployed"),
+                   c("B15003_022", "ea_bachelors"),
+                   c("B15003_017", "ea_hsdiplomma"),
+                   c("B15003_023", "ea_masters"),
+                   c("B19013_001", "med_hh_income"),
+                   c("B15003_001", "total_ea"),
+                   c("B19058_001", "total_foodstamp"),
+                   c("B19058_002", "foodstamp_yes"),
+                   c("B19058_003", "foodstamp_no"),
+                   c("B02001_001", "total_race"), 
+                   c("B02001_002", "total_white"), 
+                   c("B02001_003", "total_black"), 
+                   c("B02001_004", "total_native"), 
+                   c("B02001_005", "total_asian"), 
+                   c("B02001_006", "total_islander"), 
+                   c("B02001_007", "total_otherrace"),
+                   c("B02001_008", "total_twoormore"))
+
+code_book_PA <- as.data.frame(code_book_PA)
+colnames(code_book_PA) <- c("variable", "var_name")
+
+PA_census <- left_join(PA_census, code_book_PA)
+
+#format the data so there is a row for each census tract and column for every variable
+PA_acs_data <- maditr::dcast(PA_census, GEOID ~ var_name, value.var = "estimate", fun.aggregate = NULL)
+
+#subset to only data that is in the shape file
+PA_acs_data <- PA_acs_data[which(PA_acs_data$GEOID %in% PA_county_tracts$GEOID),] 
+
+#new variable for percent unemployed
+PA_acs_data$perc_unemployed <- PA_acs_data$total_unemployed/PA_acs_data$total_labor_force
+PA_acs_data$perc_employed <- PA_acs_data$total_employed/PA_acs_data$total_labor_force
+
+PA_acs_data$perc_foodstamp <- PA_acs_data$foodstamp_yes/PA_acs_data$total_foodstamp
+PA_acs_data$perc_nofoodstamp <- PA_acs_data$foodstamp_no/PA_acs_data$total_foodstamp
+
+PA_acs_data$perc_female <- PA_acs_data$total_female/PA_acs_data$total_pop
+PA_acs_data$perc_male <- PA_acs_data$total_male/PA_acs_data$total_pop
+
+#minn_acs_data$perc_asian <- minn_acs_data$total_asian/minn_acs_data$total_race
+#minn_acs_data$perc_native <- minn_acs_data$total_native/minn_acs_data$total_race
+#minn_acs_data$perc_white <- minn_acs_data$total_white/minn_acs_data$total_race
+#minn_acs_data$perc_black <- minn_acs_data$total_black/minn_acs_data$total_race
+#minn_acs_data$perc_islander <- minn_acs_data$total_islander/minn_acs_data$total_race
+#minn_acs_data$perc_otherrace <- minn_acs_data$total_otherrace/minn_acs_data$total_race
+#minn_acs_data$perc_twoormore <- minn_acs_data$total_twoormore/minn_acs_data$total_race
+
+#Herfindahl index
+# minn_acs_data$HHI <- ((minn_acs_data$perc_asian *100)^2) + ((minn_acs_data$perc_native *100)^2) + ((minn_acs_data$perc_white *100)^2) + ((minn_acs_data$perc_black *100)^2) + ((minn_acs_data$perc_islander *100)^2) + ((minn_acs_data$perc_otherrace *100)^2) + ((minn_acs_data$perc_twoormore *100)^2)
+# 
+# minn_acs_data$HHI <- 10000 - minn_acs_data$HHI 
+# minn_acs_data$HHI <- minn_acs_data$HHI / 875
+
+# Combine dataset with spatial dataset by GEOID
+PA_county_tracts@data <- left_join(PA_county_tracts@data, PA_acs_data)
+
+proj4string(PA_county_tracts)
+proj4string(PaCounties) #check projection
+PaCounties <- spTransform(PaCounties, proj4string(PA_county_tracts))
+#proj4string(PaCounties) <- proj4string(PA_county_tracts)
+
+#PaCounties <- spTransform(PaCounties, proj4string(PA_county_tracts))
+
+#overlay the two
+over_data <- over(PA_county_tracts, PaCounties)
+
+PA_county_tracts@data <- cbind(PA_county_tracts@data, over_data)
+
+#PA_county_tracts <- PA_county_tracts[-which(is.na(over_data$NAME)),]
+#plot(PA_county_tracts)
+```
+
+
+```{r}
+#make map
+PA_map <- ggmap(get_map(c(left = -80.95, bottom = 39.55, 
+                            right = -74.15, top = 42.48), source = "stamen"))
+
+PA_tracts_fortify <- broom::tidy(PA_county_tracts)
+PA_county_tracts$id <- row.names(PA_county_tracts)
+PA_tracts_fortify <- left_join(PA_tracts_fortify, PA_county_tracts@data)
+
+#plot number of crimes by wards
+PA_map + geom_polygon(data= PA_tracts_fortify, 
+                        aes(x = long, y = lat, group = group,
+                            fill = perc_unemployed), 
+                        col = "black") +
+  scale_fill_distiller(palette = "Spectral")
+```
+
+
+```{r}
+PA_map <- ggmap(get_map(c(left = -80.95, bottom = 39.55, 
+                            right = -74.15, top = 42.52), source = "stamen"))
+
+PA_wells <- no_TX_wells %>%
+  filter(State == "PA") %>%
+  filter(Longitude < 0 & Longitude > -100)
+
+#cin_policedist <- spTransform(cin_policedist, "+proj=longlat +datum=NAD83 +no_defs")
+PaCounties = st_read("PACounty2023_04/PaCounty2023_04.shp") %>% as("Spatial")
+PaCounties <- spTransform(PaCounties, "+proj=longlat +datum=NAD83 +no_defs")
+
+
+PA_map + geom_point(PA_wells, mapping = aes(x = Longitude, y = Latitude), size = 0.3) + 
+  geom_polygon(data= PaCounties, 
+                        aes(x = long, y = lat, group = group), 
+                        col = "blue", fill = NA, linewidth = 1) + 
+  labs(x = "Longitude", y = "Latitude", 
+       title = "All Active Oil and Gas PA Drilling Locations (as of 2016)") + 
+  theme(plot.title = element_text(hjust = 0.5))
+```
+
+
+```{r}
+PA_wells2 <- PA_wells
+coordinates(PA_wells2) <- ~Longitude + Latitude
+proj4string(PA_wells2) <- "+proj=longlat +datum=NAD83 +no_defs"
+#PA_wells2 <- spTransform(PA_wells2, "+proj=longlat +datum=NAD83 +no_defs")
+
+over_dat <- over(PA_wells2, PaCounties)
+length(which(is.na(over_dat$COUNTY_NAM))) #126 points outside of the counties
+
+agg_dat <- plyr::count(over_dat, c('COUNTY_NAM'))
+agg_dat$COUNTY_NAM <- as.factor(agg_dat$COUNTY_NAM)
+colnames(agg_dat) <- c("COUNTY_NAM", "num_wells")
+agg_dat$COUNTY_NAM <- str_to_title(agg_dat$COUNTY_NAM)
+agg_dat <- agg_dat %>%
+  filter(is.na(COUNTY_NAM) == FALSE)
+
+PA_county_tracts@data <- PA_county_tracts@data %>%
+  select(-c(COUNTY_NAM))
+
+PA_county_tracts@data <- left_join(PA_county_tracts@data, agg_dat, by = c("NAME" = "COUNTY_NAM"))
+PA_county_tracts@data["num_wells"][is.na(PA_county_tracts@data["num_wells"])] <- 1
+PA_county_tracts$well_rate <- PA_county_tracts$num_wells / PA_county_tracts$total_pop
+#PA_county_tracts$povery_rate <- PA_county_tracts$poverty_est / PA_county_tracts$total_pop
+
+```
+
+
+
+```{r}
+#setwd("~/Stat310 Final Project")
+Pennsylvania_Cancer <- read_csv("Pennsylvania_Cancer.csv")
+Pennsylvania_Cancer <- Pennsylvania_Cancer[3:69, ]
+Pennsylvania_Cancer <- Pennsylvania_Cancer %>%
+  mutate(County = str_sub(County,1,-11)) %>%
+  rename("cancer_rate" = "Age-Adjusted Incidence Rate([rate note]) - cases per 100,000") %>%
+  select(County, cancer_rate)
+
+PA_county_tracts@data <- left_join(PA_county_tracts@data, Pennsylvania_Cancer, 
+                                   by = c("NAME" = "County"))
+
+
+counties <- c("Erie", "Crawford", "Mercer", "Lawrence", "Beaver", "Washington", 
+              "Greene", "Fayette", "Westmoreland", "Allegheny", "Butler", 
+              "Armstrong", "Clarion", "Venango", "Forest", "Warren", "McKean", 
+              "Elk", "Cameron", "Jefferson", "Clearfield", "Indiana", "Cambria",
+              "Somerset", "Bedford", "Blair", "Centre", "Fulton", "Huntingdon", 
+              "Mifflin", "Juniata", "Snyder", "Union", "Clinton", "Potter", 
+              "Tioga", "Lycoming", "Montour", "Northumberland", "Columbia", 
+              "Sullivan", "Bradford", "Susquehanna", "Wyoming", "Luzerne", 
+              "Lackawanna", "Wayne", "Pike", "Monroe", "Carbon", "Schuylkill",
+              "Northampton", "Lehigh", "Bucks", "Montgomery", "Philadelphia", 
+              "Delaware", "Chester", "Berks", "Lebanon", "Dauphin", "Perry", 
+              "Cumberland", "Franklin", "Adams", "York", "Lancaster")
+asthma_ED_visits <- c(27.8, 15.9, 30, 22, 13.9, 28.2, 22.3, 24.4, 21.3, 56.1, 
+                      21.2, 19, 10.4, 19, 13.7, 23.6, 22.3, 15.8, 7.6, 13.1, 
+                      15.3, 15.3, 25.4, 6.3, 12.2, 29.4, 30.9, 17.7, 18.5, 22.1, 
+                      17.5, 19.5, 21, 13.2, 12.1, 24.5, 37.8, 26.7, 27.9, 26.4, 
+                      8.1, 12.7, 13.6, 11.3, 55.8, 35.2, 33.3, 93, 108, 32.1, 
+                      25.9, 57, 90.6, 34.1, 39.3, 111.9, 70.6, 41.4, 136.8, 
+                      83.6, 71.7, 37.3, 36.4, 25.2, 23.1, 31.3, 32.8)
+asthma <- data.frame(counties, asthma_ED_visits)
+
+PA_county_tracts@data <- left_join(PA_county_tracts@data, asthma, 
+                                   by = c("NAME" = "counties"))
+PA_county_tracts$total_asthma <- (PA_county_tracts$total_pop / 10000) *  PA_county_tracts$asthma_ED_visits
+PA_county_tracts$total_cancer <- (PA_county_tracts$total_pop / 10000) *  PA_county_tracts$cancer_rate
+```
+
+
+
+```{r}
+PA_tracts_tidy <- broom::tidy(PA_county_tracts)
+PA_county_tracts$id <- row.names(PA_county_tracts) #need to join data
+PA_tracts_tidy <- left_join(PA_tracts_tidy, PA_county_tracts@data)
+
+
+PA_map + geom_polygon(data= PA_tracts_tidy, aes(x = long, y = lat, 
+                              group = group, fill = log(num_wells)), col = "black") + 
+  labs(fill = "Log\nWells", x = "Longitude", y = "Latitude", 
+       title = "Log Number of Oil Wells in Pennsylvania Counties") +
+  theme(plot.title = element_text(hjust = 0.5)) + 
+  scale_fill_distiller(palette = "Spectral")
+
+PA_map + geom_polygon(data= PA_tracts_tidy, aes(x = long, y = lat, 
+                              group = group, fill = med_hh_income), col = "black") + 
+  labs(fill = "Income", x = "Longitude", y = "Latitude", 
+       title = "Median Household Income in Pennsylvania Counties") +
+  theme(plot.title = element_text(hjust = 0.5)) + 
+  scale_fill_distiller(palette = "Spectral")
+
+PA_map + geom_polygon(data= PA_tracts_tidy, aes(x = long, y = lat, 
+                              group = group, fill = cancer_rate), col = "black") + 
+  labs(fill = "Rate", x = "Longitude", y = "Latitude", 
+       title = "Cancer Incidents per 10,000 in Pennsylvania Counties") +
+  theme(plot.title = element_text(hjust = 0.5)) + 
+  scale_fill_distiller(palette = "Spectral")
+
+PA_map + geom_polygon(data= PA_tracts_tidy, aes(x = long, y = lat, 
+                              group = group, fill = asthma_ED_visits), col = "black") + 
+  labs(fill = "Rate", x = "Longitude", y = "Latitude", 
+       title = "Asthma ED visits per 10,000 in Pennsylvania Counties") +
+  theme(plot.title = element_text(hjust = 0.5)) + 
+  scale_fill_distiller(palette = "Spectral")
+```
+
+
+
+
+
+
+

@@ -1,0 +1,622 @@
+---
+title: "Knitted R Markdown Document for Final Project"
+author: "Parker Johnson"
+output: pdf_document
+date: "2023-06-04"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(sp)
+library(tigris)
+library(ggmap)
+library(tidycensus)
+library(maditr)
+library(spdep)
+library(spatialreg)
+library(gridExtra)
+library(sf)
+set.seed(597)
+```
+
+
+Loading in the dataset. Note that this is from the 2017 dataset retrieved from https://www.fractracker.org/2017/03/34-states-active-drilling-2016/. This dataset wasn't used for the final analysis as 2021 data was found that was more updated, but since it contains point-level data on the location of oil wells in Pennsylvania, the code for aggregating this data to the county-level could still prove to be useful to anyone hoping to do further analysis using frequency or proximity to oil wells.
+
+```{r}
+PA_map <- ggmap(get_map(c(left = -80.95, bottom = 39.55, 
+                            right = -74.15, top = 42.52), source = "stamen"))
+
+no_TX_wells <- read_csv("US_WellsFacilities2016/US_OGfacil_2016_noTX.csv")
+
+PA_wells <- no_TX_wells %>%
+  filter(State == "PA") %>%
+  filter(Longitude < 0 & Longitude > -100)
+
+PaCounties = st_read("PACounty2023_04/PaCounty2023_04.shp") %>% as("Spatial")
+PaCounties <- spTransform(PaCounties, "+proj=longlat +datum=NAD83 +no_defs")
+```
+
+
+Pulling census data.
+
+```{r}
+PA_county_tracts <- counties("PA")
+PA_county_tracts <- as_Spatial(PA_county_tracts)
+
+PA_census <- get_acs(geography = "county",
+                         variables = c("B01003_001E", "B01001_002E",
+                                       "B01001_026E", "B23025_003E", 
+                                       "B23025_004E", "B23025_005E", 
+                                       "B15003_022E", "B15003_017E",
+                                       "B15003_023E", "B19013_001E", 
+                                       "B15003_001E", "B19058_001E", 
+                                       "B19058_002E", "B19058_003E", 
+                                       "B02001_001E", "B02001_002E", 
+                                       "B02001_003E", "B02001_004E", 
+                                       "B02001_005E","B02001_006E", 
+                                       "B02001_007E", "B02001_008E"), year = 2021,
+                         state = "PA",
+                         geometry = F)
+
+code_book_PA <- rbind(c("B01003_001", "total_pop"),
+                   c("B01001_002", "total_male"),
+                   c("B01001_026", "total_female"),
+                   c("B23025_003", "total_labor_force"), 
+                   c("B23025_004", "total_employed"), 
+                   c("B23025_005", "total_unemployed"),
+                   c("B15003_022", "ea_bachelors"),
+                   c("B15003_017", "ea_hsdiplomma"),
+                   c("B15003_023", "ea_masters"),
+                   c("B19013_001", "med_hh_income"),
+                   c("B15003_001", "total_ea"),
+                   c("B19058_001", "total_foodstamp"),
+                   c("B19058_002", "foodstamp_yes"),
+                   c("B19058_003", "foodstamp_no"),
+                   c("B02001_001", "total_race"), 
+                   c("B02001_002", "total_white"), 
+                   c("B02001_003", "total_black"), 
+                   c("B02001_004", "total_native"), 
+                   c("B02001_005", "total_asian"), 
+                   c("B02001_006", "total_islander"), 
+                   c("B02001_007", "total_otherrace"),
+                   c("B02001_008", "total_twoormore"))
+
+code_book_PA <- as.data.frame(code_book_PA)
+colnames(code_book_PA) <- c("variable", "var_name")
+
+PA_census <- left_join(PA_census, code_book_PA)
+
+#format the data so there is a row for each census tract and column for every variable
+PA_acs_data <- maditr::dcast(PA_census, GEOID ~ var_name, 
+                             value.var = "estimate", fun.aggregate = NULL)
+
+#subset to only data that is in the shape file
+PA_acs_data <- PA_acs_data[which(PA_acs_data$GEOID %in% PA_county_tracts$GEOID),] 
+
+#new variable for percent unemployed
+PA_acs_data$perc_unemployed <- PA_acs_data$total_unemployed/
+  PA_acs_data$total_labor_force
+PA_acs_data$perc_employed <- PA_acs_data$total_employed/
+  PA_acs_data$total_labor_force
+
+PA_acs_data$perc_foodstamp <- PA_acs_data$foodstamp_yes/PA_acs_data$total_foodstamp
+PA_acs_data$perc_nofoodstamp <- PA_acs_data$foodstamp_no/PA_acs_data$total_foodstamp
+
+PA_acs_data$perc_female <- PA_acs_data$total_female/PA_acs_data$total_pop
+PA_acs_data$perc_male <- PA_acs_data$total_male/PA_acs_data$total_pop
+
+PA_acs_data$perc_white <- PA_acs_data$total_white/PA_acs_data$total_race
+
+
+# Combine dataset with spatial dataset by GEOID
+PA_county_tracts@data <- left_join(PA_county_tracts@data, PA_acs_data)
+
+proj4string(PA_county_tracts)
+proj4string(PaCounties) #check projection
+PaCounties <- spTransform(PaCounties, proj4string(PA_county_tracts))
+
+#overlay the two
+over_data <- over(PA_county_tracts, PaCounties)
+
+PA_county_tracts@data <- cbind(PA_county_tracts@data, over_data)
+```
+
+Aggregating the outdated dataset to the county level, and adding 1 to the number of oil wells in each county to allow for the log transformation to work later.
+
+```{r}
+PA_wells2 <- PA_wells
+coordinates(PA_wells2) <- ~Longitude + Latitude
+proj4string(PA_wells2) <- "+proj=longlat +datum=NAD83 +no_defs"
+
+over_dat <- over(PA_wells2, PaCounties)
+length(which(is.na(over_dat$COUNTY_NAM))) #126 points outside of the counties
+
+agg_dat <- plyr::count(over_dat, c('COUNTY_NAM'))
+agg_dat$COUNTY_NAM <- as.factor(agg_dat$COUNTY_NAM)
+colnames(agg_dat) <- c("COUNTY_NAM", "num_wells")
+agg_dat$COUNTY_NAM <- str_to_title(agg_dat$COUNTY_NAM)
+agg_dat <- agg_dat %>%
+  filter(is.na(COUNTY_NAM) == FALSE)
+
+PA_county_tracts@data <- PA_county_tracts@data %>%
+  select(-c(COUNTY_NAM))
+
+PA_county_tracts@data <- left_join(PA_county_tracts@data, agg_dat, 
+                                   by = c("NAME" = "COUNTY_NAM"))
+
+PA_county_tracts@data["num_wells"][is.na(PA_county_tracts@data["num_wells"])] <- 0
+PA_county_tracts@data["num_wells"] <- PA_county_tracts@data["num_wells"] + 1
+PA_county_tracts$well_rate <- PA_county_tracts$num_wells / PA_county_tracts$total_pop
+```
+
+Reading in the cancer, asthma, and updated data for the number of conventional and historic oil wells in Pennsylvania, all aggregated to the county level. Also adding the indicator variable for if a county is in eastern Pennsylvania or not, and standardizing the total population in each county to allow for the spatial Durbin models to work later.
+
+```{r}
+Pennsylvania_Cancer <- read_csv("Pennsylvania_Cancer.csv")
+Pennsylvania_Cancer <- Pennsylvania_Cancer[3:69, ]
+Pennsylvania_Cancer <- Pennsylvania_Cancer %>%
+  mutate(County = str_sub(County,1,-11)) %>%
+  rename("cancer_rate" = 
+           "Age-Adjusted Incidence Rate([rate note]) - cases per 100,000") %>%
+  select(County, cancer_rate)
+
+PA_county_tracts@data <- left_join(PA_county_tracts@data, Pennsylvania_Cancer, 
+                                   by = c("NAME" = "County"))
+
+
+counties <- c("Erie", "Crawford", "Mercer", "Lawrence", "Beaver", "Washington", 
+              "Greene", "Fayette", "Westmoreland", "Allegheny", "Butler", 
+              "Armstrong", "Clarion", "Venango", "Forest", "Warren", "McKean", 
+              "Elk", "Cameron", "Jefferson", "Clearfield", "Indiana", "Cambria",
+              "Somerset", "Bedford", "Blair", "Centre", "Fulton", "Huntingdon", 
+              "Mifflin", "Juniata", "Snyder", "Union", "Clinton", "Potter", 
+              "Tioga", "Lycoming", "Montour", "Northumberland", "Columbia", 
+              "Sullivan", "Bradford", "Susquehanna", "Wyoming", "Luzerne", 
+              "Lackawanna", "Wayne", "Pike", "Monroe", "Carbon", "Schuylkill",
+              "Northampton", "Lehigh", "Bucks", "Montgomery", "Philadelphia", 
+              "Delaware", "Chester", "Berks", "Lebanon", "Dauphin", "Perry", 
+              "Cumberland", "Franklin", "Adams", "York", "Lancaster")
+asthma_ED_visits <- c(27.8, 15.9, 30, 22, 13.9, 28.2, 22.3, 24.4, 21.3, 56.1, 
+                      21.2, 19, 10.4, 19, 13.7, 23.6, 22.3, 15.8, 7.6, 13.1, 
+                      15.3, 15.3, 25.4, 6.3, 12.2, 29.4, 30.9, 17.7, 18.5, 22.1, 
+                      17.5, 19.5, 21, 13.2, 12.1, 24.5, 37.8, 26.7, 27.9, 26.4, 
+                      8.1, 12.7, 13.6, 11.3, 55.8, 35.2, 33.3, 93, 108, 32.1, 
+                      25.9, 57, 90.6, 34.1, 39.3, 111.9, 70.6, 41.4, 136.8, 
+                      83.6, 71.7, 37.3, 36.4, 25.2, 23.1, 31.3, 32.8)
+number_of_wells <- c(2857, 3076, 3213, 174, 143, 1896, 2149, 3071, 5765, 1132, 
+                     1285, 8285, 3710, 8184, 5416, 12514, 11102, 2910, 49, 5371, 
+                     4156, 11285, 565, 72, 39, 0, 707, 0, 2, 0, 0, 0, 0, 503, 
+                     1187, 105, 4, 0, 0, 0, 0, 12, 6, 1, 1, 1, 2, 2, 0, 0, 2, 
+                     0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 1, 0)
+asthma <- data.frame(counties, asthma_ED_visits, number_of_wells)
+
+PA_county_tracts@data <- left_join(PA_county_tracts@data, asthma, 
+                                   by = c("NAME" = "counties"))
+PA_county_tracts$total_asthma <- (PA_county_tracts$total_pop / 10000) * 
+  PA_county_tracts$asthma_ED_visits
+PA_county_tracts$total_cancer <- (PA_county_tracts$total_pop / 10000) * 
+  PA_county_tracts$cancer_rate
+
+PA_county_tracts@data["number_of_wells"][is.na(PA_county_tracts@data["number_of_wells"])] <- 0
+PA_county_tracts@data["number_of_wells"] <- PA_county_tracts@data["number_of_wells"] + 1
+PA_county_tracts$well_rate_v2 <- PA_county_tracts$number_of_wells / 
+  PA_county_tracts$total_pop
+
+#Adding the indicator variable
+PA_county_tracts$is_Eastern_PA <- ifelse(PA_county_tracts$number_of_wells <= 3, 1, 0)
+PA_county_tracts@data["is_Eastern_PA"][PA_county_tracts@data["NAME"] == "Blair"] <- 0
+PA_county_tracts@data["is_Eastern_PA"][PA_county_tracts@data["NAME"] == "Sullivan"] <- 0
+
+#Standardizing population for the spatial Durbin model used later
+PA_county_tracts$total_pop_standardized <- PA_county_tracts$total_pop / 1596865
+```
+
+
+Creating plots of the log number of oil wells, the median household income, cancer rate, and asthma ED visit rate based on Pennsylvania counties.
+
+```{r}
+PA_tracts_tidy <- broom::tidy(PA_county_tracts)
+PA_county_tracts$id <- row.names(PA_county_tracts) #need to join data
+PA_tracts_tidy <- left_join(PA_tracts_tidy, PA_county_tracts@data)
+
+
+PA_map + geom_polygon(data= PA_tracts_tidy, aes(x = long, y = lat, 
+                              group = group, fill = log(number_of_wells)), 
+                      col = "black") + 
+  labs(fill = "Log Number\nof Wells",
+       title = "Log Number of Active Oil Wells in Pennsylvania Counties") +
+  theme(plot.title = element_text(hjust = 0.5)) + 
+  scale_fill_distiller(palette = "Spectral") + 
+      theme(axis.title = element_blank(),
+        axis.text = element_blank(),
+        axis.ticks = element_blank())
+
+PA_map + geom_polygon(data= PA_tracts_tidy, aes(x = long, y = lat, 
+                              group = group, fill = med_hh_income), 
+                      col = "black") + 
+  labs(fill = "Median\nHousehold\nIncome",
+       title = "Median Household Income in Pennsylvania Counties") +
+  theme(plot.title = element_text(hjust = 0.5)) + 
+  scale_fill_distiller(palette = "Spectral") + 
+        theme(axis.title = element_blank(),
+        axis.text = element_blank(),
+        axis.ticks = element_blank())
+
+PA_map + geom_polygon(data= PA_tracts_tidy, aes(x = long, y = lat, 
+                              group = group, fill = cancer_rate), col = "black") + 
+  labs(fill = "Cancer\nRate",
+       title = "Cancer Incidents per 10,000 in Pennsylvania Counties") +
+  theme(plot.title = element_text(hjust = 0.5)) + 
+  scale_fill_distiller(palette = "Spectral") + 
+        theme(axis.title = element_blank(),
+        axis.text = element_blank(),
+        axis.ticks = element_blank())
+
+PA_map + geom_polygon(data= PA_tracts_tidy, aes(x = long, y = lat, 
+                              group = group, fill = asthma_ED_visits), 
+                      col = "black") + 
+  labs(fill = "Asthma\nRate",
+       title = "Asthma ED visits per 10,000 in Pennsylvania Counties") +
+  theme(plot.title = element_text(hjust = 0.5)) + 
+  scale_fill_distiller(palette = "Spectral") + 
+        theme(axis.title = element_blank(),
+        axis.text = element_blank(),
+        axis.ticks = element_blank())
+```
+
+Specifying the initial 5 neighborhood matrices.
+
+```{r}
+pennsylvania_nb <- poly2nb(PA_county_tracts)
+B_list <- nb2listw(pennsylvania_nb, style="B") #binary
+W_list <- nb2listw(pennsylvania_nb, style="W") #row standardized
+
+areal_knn3 <- knearneigh(coordinates(PA_county_tracts), k=3)
+#convert back to nb
+areal_knn_nb3 <- knn2nb(areal_knn3)
+#choose row-standardized or binary
+W_list_knn3 <- nb2listw(areal_knn_nb3, style="W")
+#average for row-standardized
+
+areal_knn5 <- knearneigh(coordinates(PA_county_tracts), k=5)
+areal_knn_nb5 <- knn2nb(areal_knn5)
+W_list_knn5 <- nb2listw(areal_knn_nb5, style="W")
+
+areal_knn10 <- knearneigh(coordinates(PA_county_tracts), k=10)
+areal_knn_nb10 <- knn2nb(areal_knn10)
+W_list_knn10 <- nb2listw(areal_knn_nb10, style="W")
+```
+
+Making the lm model for cancer rate, and checking the VIF for the linear model.
+
+```{r}
+cancer_lm <- lm(cancer_rate ~ perc_white + perc_unemployed + med_hh_income + 
+                  total_pop + log(number_of_wells) + is_Eastern_PA + 
+                  I(log(number_of_wells) * is_Eastern_PA), 
+                data = PA_county_tracts@data)
+summary(cancer_lm)
+
+library(car)
+vif(cancer_lm)
+
+#store the residuals to see if there is any spatial structure to the residuals
+resid <- cancer_lm$residuals
+
+#can join this to the SpatialPolygons
+PA_county_tracts@data$resid <- resid
+```
+
+Moran's I tests for each neighborhood matrix on the linear model.
+
+```{r}
+#set.seed(597)
+#binary, spatial adjacency
+mc <- moran(PA_county_tracts$resid, B_list, n = length(pennsylvania_nb), 
+            S0 = Szero(B_list))
+mc$I
+moran.mc(x=PA_county_tracts$resid, listw=B_list, nsim=5000)
+
+#row-standardized, spatial adjacency
+mc <- moran(PA_county_tracts$resid, W_list, n = length(pennsylvania_nb), 
+            S0 = Szero(W_list))
+mc$I
+moran.mc(x=PA_county_tracts$resid, listw=W_list, nsim=5000)
+
+#k-nn 3, row-standardized
+mc <- moran(PA_county_tracts$resid, W_list_knn3, n = length(pennsylvania_nb), 
+            S0 = Szero(W_list_knn3))
+mc$I
+moran.mc(x=PA_county_tracts$resid, listw=W_list_knn3, nsim=5000)
+
+#k-nn 5, row-standardized
+mc <- moran(PA_county_tracts$resid, W_list_knn5, n = length(pennsylvania_nb), 
+            S0 = Szero(W_list_knn5))
+mc$I
+moran.mc(x=PA_county_tracts$resid, listw=W_list_knn5, nsim=5000)
+
+#k-nn 10, row-standardized
+mc <- moran(PA_county_tracts$resid, W_list_knn10, n = length(pennsylvania_nb), 
+            S0 = Szero(W_list_knn10))
+mc$I
+moran.mc(x=PA_county_tracts$resid, listw=W_list_knn10, nsim=5000)
+```
+
+Creating the spatial lag models.
+
+```{r}
+pennsylvania_lag_B <- lagsarlm(cancer_rate ~ perc_white + perc_unemployed + 
+                                 med_hh_income + total_pop + 
+                                 log(number_of_wells) + is_Eastern_PA + 
+                                 I(log(number_of_wells) * is_Eastern_PA), 
+                               data = PA_county_tracts, listw = B_list)
+summary(pennsylvania_lag_B)
+
+pennsylvania_lag_W <- lagsarlm(cancer_rate ~ perc_white + perc_unemployed + 
+                                 med_hh_income + total_pop + 
+                                 log(number_of_wells) + is_Eastern_PA + 
+                                 I(log(number_of_wells) * is_Eastern_PA), 
+                               data = PA_county_tracts, listw = W_list)
+summary(pennsylvania_lag_W)
+
+pennsylvania_lag_W_3 <- lagsarlm(cancer_rate ~ perc_white + perc_unemployed + 
+                                   med_hh_income + total_pop + 
+                                   log(number_of_wells) + is_Eastern_PA + 
+                                   I(log(number_of_wells) * is_Eastern_PA), 
+                                 data = PA_county_tracts, listw = W_list_knn3)
+summary(pennsylvania_lag_W_3)
+
+pennsylvania_lag_W_10 <- lagsarlm(cancer_rate ~ perc_white + perc_unemployed + 
+                                    med_hh_income + total_pop + 
+                                    log(number_of_wells) + is_Eastern_PA + 
+                                    I(log(number_of_wells) * is_Eastern_PA), 
+                                  data = PA_county_tracts, listw = W_list_knn10)
+summary(pennsylvania_lag_W_10)
+```
+
+Creating the spatial Durbin models.
+
+```{r}
+pennsylvania_Durbin_B <- lagsarlm(cancer_rate ~ perc_white + perc_unemployed + 
+                                    med_hh_income + total_pop_standardized + 
+                                    log(number_of_wells) + is_Eastern_PA + 
+                                    I(log(number_of_wells) * is_Eastern_PA), 
+                            data = PA_county_tracts, Durbin = T, listw = B_list)
+summary(pennsylvania_Durbin_B)
+
+pennsylvania_Durbin_W <- lagsarlm(cancer_rate ~ perc_white + perc_unemployed + 
+                                    med_hh_income + total_pop_standardized + 
+                                    log(number_of_wells) + is_Eastern_PA + 
+                                    I(log(number_of_wells) * is_Eastern_PA), 
+                            data = PA_county_tracts, Durbin = T, listw = W_list)
+summary(pennsylvania_Durbin_W)
+
+pennsylvania_Durbin_W_3 <- lagsarlm(cancer_rate ~ perc_white + perc_unemployed + 
+                                      med_hh_income + total_pop_standardized + 
+                                      log(number_of_wells) + is_Eastern_PA +
+                                      I(log(number_of_wells) * is_Eastern_PA), 
+                      data = PA_county_tracts, Durbin = T, listw = W_list_knn3)
+summary(pennsylvania_Durbin_W_3)
+
+pennsylvania_Durbin_W_10 <- lagsarlm(cancer_rate ~ perc_white + perc_unemployed + 
+                                       med_hh_income + total_pop_standardized +
+                                       log(number_of_wells) + is_Eastern_PA +
+                                       I(log(number_of_wells) * is_Eastern_PA), 
+                      data = PA_county_tracts, Durbin = T, listw = W_list_knn10)
+summary(pennsylvania_Durbin_W_10)
+```
+
+Creating the spatial error models.
+
+```{r}
+pennsylvania_sar_B <- errorsarlm(cancer_rate ~ perc_white + perc_unemployed + 
+                                   med_hh_income + total_pop + 
+                                   log(number_of_wells) + is_Eastern_PA + 
+                                   I(log(number_of_wells) * is_Eastern_PA), 
+                                 data = PA_county_tracts, listw = B_list)
+summary(pennsylvania_sar_B)
+
+pennsylvania_sar_W <- errorsarlm(cancer_rate ~ perc_white + perc_unemployed + 
+                                   med_hh_income + total_pop + 
+                                   log(number_of_wells) + is_Eastern_PA + 
+                                   I(log(number_of_wells) * is_Eastern_PA), 
+                                 data = PA_county_tracts, listw = W_list)
+summary(pennsylvania_sar_W)
+
+pennsylvania_sar_W_3 <- errorsarlm(cancer_rate ~ perc_white + perc_unemployed + 
+                                     med_hh_income + total_pop + 
+                                     log(number_of_wells) + is_Eastern_PA + 
+                                     I(log(number_of_wells) * is_Eastern_PA), 
+                                   data = PA_county_tracts, listw = W_list_knn3)
+summary(pennsylvania_sar_W_3)
+
+pennsylvania_sar_W_10 <- errorsarlm(cancer_rate ~ perc_white + perc_unemployed + 
+                                      med_hh_income + total_pop + 
+                                      log(number_of_wells) + is_Eastern_PA +
+                                      I(log(number_of_wells) * is_Eastern_PA), 
+                                  data = PA_county_tracts, listw = W_list_knn10)
+summary(pennsylvania_sar_W_10)
+```
+
+Creating the CAR models.
+
+```{r}
+pennsylvania_car_B <- spautolm(cancer_rate ~ perc_white + perc_unemployed + 
+                                 med_hh_income + total_pop + 
+                                 log(number_of_wells) + is_Eastern_PA + 
+                                 I(log(number_of_wells) * is_Eastern_PA), 
+                        data = PA_county_tracts, family = "CAR", listw = B_list)
+summary(pennsylvania_car_B)
+
+pennsylvania_car_W <- spautolm(cancer_rate ~ perc_white + perc_unemployed + 
+                                 med_hh_income + total_pop + 
+                                 log(number_of_wells) + is_Eastern_PA + 
+                                 I(log(number_of_wells) * is_Eastern_PA), 
+                        data = PA_county_tracts, family = "CAR", listw = W_list)
+summary(pennsylvania_car_W)
+
+pennsylvania_car_W_3 <- spautolm(cancer_rate ~ perc_white + perc_unemployed + 
+                                   med_hh_income + total_pop + 
+                                   log(number_of_wells) + is_Eastern_PA + 
+                                   I(log(number_of_wells) * is_Eastern_PA), 
+                  data = PA_county_tracts, family = "CAR", listw = W_list_knn3)
+summary(pennsylvania_car_W_3)
+
+pennsylvania_car_W_10 <- spautolm(cancer_rate ~ perc_white + perc_unemployed + 
+                                    med_hh_income + total_pop + 
+                                    log(number_of_wells) + is_Eastern_PA + 
+                                    I(log(number_of_wells) * is_Eastern_PA), 
+                  data = PA_county_tracts, family = "CAR", listw = W_list_knn10)
+summary(pennsylvania_car_W_10)
+```
+
+
+The best model for cancer rate.
+
+```{r}
+pennsylvania_Durbin_W <- lagsarlm(cancer_rate ~ perc_white + perc_unemployed + 
+                                    med_hh_income + total_pop_standardized + 
+                                    log(number_of_wells) + is_Eastern_PA + 
+                                    I(log(number_of_wells) * is_Eastern_PA), 
+                            data = PA_county_tracts, Durbin = T, listw = W_list)
+summary(pennsylvania_Durbin_W)
+```
+
+
+
+Making the lm for asthma rate, and checking the VIF of the linear model.
+
+```{r}
+asthma_lm <- lm(asthma_ED_visits ~ perc_white + perc_unemployed + med_hh_income + 
+                  total_pop + log(number_of_wells) + is_Eastern_PA + 
+                  I(log(number_of_wells) * is_Eastern_PA), 
+                data = PA_county_tracts@data)
+summary(asthma_lm)
+
+library(car)
+vif(asthma_lm)
+
+#store the residuals to see if there is any spatial structure to the residuals
+resid <- asthma_lm$residuals
+
+#can join this to the SpatialPolygons
+PA_county_tracts@data$resid2 <- resid
+```
+
+Moran's I tests for each neighborhood matrix on the linear model.
+
+```{r}
+#set.seed(597)
+#binary, spatial adjacency
+mc <- moran(PA_county_tracts$resid2, B_list, n = length(pennsylvania_nb), 
+            S0 = Szero(B_list))
+mc$I
+moran.mc(x=PA_county_tracts$resid2, listw=B_list, nsim=5000)
+
+#row-standardized, spatial adjacency
+mc <- moran(PA_county_tracts$resid2, W_list, n = length(pennsylvania_nb), 
+            S0 = Szero(W_list))
+mc$I
+moran.mc(x=PA_county_tracts$resid2, listw=W_list, nsim=5000)
+
+#k-nn 3, row-standardized
+mc <- moran(PA_county_tracts$resid2, W_list_knn3, n = length(pennsylvania_nb), 
+            S0 = Szero(W_list_knn3))
+mc$I
+moran.mc(x=PA_county_tracts$resid2, listw=W_list_knn3, nsim=5000)
+
+#k-nn 5, row-standardized
+mc <- moran(PA_county_tracts$resid2, W_list_knn5, n = length(pennsylvania_nb), 
+            S0 = Szero(W_list_knn5))
+mc$I
+moran.mc(x=PA_county_tracts$resid2, listw=W_list_knn5, nsim=5000)
+
+#k-nn 10, row-standardized
+mc <- moran(PA_county_tracts$resid2, W_list_knn10, n = length(pennsylvania_nb), 
+            S0 = Szero(W_list_knn10))
+mc$I
+moran.mc(x=PA_county_tracts$resid2, listw=W_list_knn10, nsim=5000)
+```
+
+Creating the spatial lag models.
+
+```{r}
+asthma_lag_W <- lagsarlm(asthma_ED_visits ~ perc_white + perc_unemployed + 
+                           med_hh_income + total_pop + log(number_of_wells) + 
+                           is_Eastern_PA + I(log(number_of_wells) * is_Eastern_PA), 
+                         data = PA_county_tracts, listw = W_list)
+summary(asthma_lag_W)
+
+asthma_lag_W_5 <- lagsarlm(asthma_ED_visits ~ perc_white + perc_unemployed + 
+                             med_hh_income + total_pop + log(number_of_wells) + 
+                             is_Eastern_PA + I(log(number_of_wells) * is_Eastern_PA), 
+                           data = PA_county_tracts, listw = W_list_knn5)
+summary(asthma_lag_W_5)
+```
+
+Creating the spatial Durbin models.
+
+```{r}
+asthma_Durbin_W <- lagsarlm(asthma_ED_visits ~ perc_white + perc_unemployed + 
+                              med_hh_income + total_pop_standardized + 
+                              log(number_of_wells) + is_Eastern_PA + 
+                              I(log(number_of_wells) * is_Eastern_PA), 
+                            data = PA_county_tracts, Durbin = T, listw = W_list)
+summary(asthma_Durbin_W)
+
+asthma_Durbin_W_5 <- lagsarlm(asthma_ED_visits ~ perc_white + perc_unemployed + 
+                                med_hh_income + total_pop_standardized + 
+                                log(number_of_wells) + is_Eastern_PA + 
+                                I(log(number_of_wells) * is_Eastern_PA), 
+                        data = PA_county_tracts, Durbin = T, listw = W_list_knn5)
+summary(asthma_Durbin_W_5)
+```
+
+Creating the spatial error models.
+
+```{r}
+asthma_sar_W <- errorsarlm(asthma_ED_visits ~ perc_white + perc_unemployed + 
+                             med_hh_income + total_pop + log(number_of_wells) + 
+                             is_Eastern_PA + I(log(number_of_wells) * is_Eastern_PA), 
+                           data = PA_county_tracts, listw = W_list)
+summary(asthma_sar_W)
+
+asthma_sar_W_5 <- errorsarlm(asthma_ED_visits ~ perc_white + perc_unemployed + 
+                               med_hh_income + total_pop + log(number_of_wells) + 
+                               is_Eastern_PA + I(log(number_of_wells) * is_Eastern_PA), 
+                             data = PA_county_tracts, listw = W_list_knn5)
+summary(asthma_sar_W_5)
+```
+
+Creating the CAR models.
+
+```{r}
+asthma_car_W <- spautolm(asthma_ED_visits ~ perc_white + perc_unemployed + 
+                           med_hh_income + total_pop + log(number_of_wells) + 
+                           is_Eastern_PA + I(log(number_of_wells) * is_Eastern_PA), 
+                         data = PA_county_tracts, family = "CAR", listw = W_list)
+summary(asthma_car_W)
+
+asthma_car_W_5 <- spautolm(asthma_ED_visits ~ perc_white + perc_unemployed + 
+                             med_hh_income + total_pop + log(number_of_wells) + 
+                             is_Eastern_PA + I(log(number_of_wells) * is_Eastern_PA), 
+                      data = PA_county_tracts, family = "CAR", listw = W_list_knn5)
+summary(asthma_car_W_5)
+```
+
+
+The best model for the asthma rate.
+
+```{r}
+asthma_sar_W <- errorsarlm(asthma_ED_visits ~ perc_white + perc_unemployed + 
+                             med_hh_income + total_pop + log(number_of_wells) + 
+                             is_Eastern_PA + I(log(number_of_wells) * is_Eastern_PA), 
+                           data = PA_county_tracts, listw = W_list)
+summary(asthma_sar_W)
+```
+
+
+
+
+
+

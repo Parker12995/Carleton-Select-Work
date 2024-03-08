@@ -1,0 +1,37 @@
+---
+title: "Project_Proposal"
+output: pdf_document
+date: "2023-04-13"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## R Markdown
+
+```{r}
+library(ggmap)
+library(readr)
+
+TX_wells <- read_csv("US_WellsFacilities2016/TX_OGfacil_2016.csv")
+no_TX_wells <- read_csv("US_WellsFacilities2016/US_OGfacil_2016_noTX.csv")
+Texas_cancer <- read_csv("incd.csv")
+
+TX_wells$LONGITUDE
+#unique(wells1$Type)
+US48 <- ggmap(get_map(c(left = -126.0031, bottom = 23.1465, 
+                right = -63.3864, top = 50.4969), source = "stamen"))
+US48 + geom_point(TX_wells, mapping = aes(x = LONGITUDE, y = LATITUDE, 
+                                          color = Type), size = 0.3) + 
+  geom_point(no_TX_wells, mapping = aes(x = Longitude, y = Latitude, 
+                                        color = Type), size = 0.3) + 
+  labs(x = "Longitude", y = "Latitude", 
+       title = "All Active Oil and Gas US Drilling Locations (as of 2016)") + 
+  theme(plot.title = element_text(hjust = 0.5))
+
+#write_csv(Texas_cancer, "Texas_cancer.csv")
+```
+
+
+
