@@ -13,6 +13,7 @@ Most notable script from each folder (note that all work done was collaborative 
 - Bayesian Statistics folder: CollegeSportFundingBayesianAnalysis/ben_rmd.Rmd
 
 Some key scripts in Carleton Comps folder (more information is in carleton-comps/code_documentation.txt):
+- carleton-comps/carleton_comps______.pdf; our final written report for the project
 - carleton-comps/src/zhihan/lgcp_log_intensity_surface.Rmd; plots the intensity surfaces for different LGCP models ran
 - carleton-comps/src/zhihan/lgcp_uof_optimized_6_covariates.Rmd; runs the LGCP models and saves the iterations
 - carleton-comps/src/Harper/Generating Ward 9 Knots.Rmd; generates the knots used for most of the LGCP models ran
