@@ -2,9 +2,9 @@ Select work from statistics projects while attending Carleton College.
 This is largely intended to show my R programming capabilities, as well as the breadth of statistical knowledge I have about a wide variety of subjects.
 While I am clearly most familiar with programming in R, I am more than willing to learn other languages such as SQL, and have additional experience coding in Python and Java.
 
-<b>The script best representative of my abilities is Final_Project_Document_Updated.Rmd<b>, with another notable script being Stat340 Bayesian Statistics/CollegeSportFundingBayesianAnalysis/ben_rmd.Rmd.
+<strong>The script best representative of my abilities is Final_Project_Document_Updated.Rmd</strong>, with another notable script being Stat340 Bayesian Statistics/CollegeSportFundingBayesianAnalysis/ben_rmd.Rmd.
 
-<b>The best collaborative project is the senior year comprehensive (comps) project<b>, with the final report being found under carleton-comps/carleton_comps______.pdf. My largest contributions can be found in the report under subsections 4.2, 4.3, 5.4, 5.5, 6.1, and 6.3, as well as cleaning the data, generating census blocks for wards 8 and 9, and generating knots for the LGCP.
+<strong>The best collaborative project is the senior year comprehensive (comps) project</strong>, with the final report being found under carleton-comps/carleton_comps______.pdf. My largest contributions can be found in the report under subsections 4.2, 4.3, 5.4, 5.5, 6.1, and 6.3, as well as cleaning the data, generating census blocks for wards 8 and 9, and generating knots for the LGCP.
 
 Most notable script from each folder (note that all work done was collaborative or my independent work):
 - Data Science folder: final-project-f02/final_app/app.R
